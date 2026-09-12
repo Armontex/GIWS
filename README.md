@@ -1,65 +1,98 @@
-# GIWS
+<!-- TODO(brand): Add the GIWS logo here. Recommended: assets/logo.svg, approximately 160 px wide. -->
 
-[![CI](https://github.com/Armontex/GIWS/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/Armontex/GIWS/actions/workflows/ci.yml)
+<div align="center">
 
-GIWS provides independent workspace switching per monitor for GNOME Shell 46.
-It is written in TypeScript and compiled to native GJS ES modules.
+<h1>GIWS</h1>
 
-The project is under active development. `develop` contains the latest runtime
-changes; `main` is the stable integration branch.
+<h3>Independent workspaces. Every monitor. Native GNOME shortcuts.</h3>
 
-## Features
+<p>
+  GIWS brings monitor-aware workspace switching to GNOME Shell.<br />
+  Move through workspaces on the display you are using without disturbing the others.
+</p>
 
-- Uses the existing GNOME workspace shortcuts without rewriting them.
-- Switches only the active secondary monitor while leaving other monitors in
-  place.
-- Preserves native GNOME switching on the primary monitor.
-- Restores the original GNOME keybinding handlers when disabled.
-- Provides an isolated two-monitor runtime smoke test.
+<p>
+  <a href="https://github.com/Armontex/GIWS/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Armontex/GIWS/actions/workflows/ci.yml/badge.svg?branch=develop" /></a>
+  <a href="https://release.gnome.org/46/"><img alt="GNOME Shell 46" src="https://img.shields.io/badge/GNOME%20Shell-46-4A86CF?logo=gnome&amp;logoColor=white" /></a>
+  <a href="https://www.typescriptlang.org/"><img alt="TypeScript ESM" src="https://img.shields.io/badge/TypeScript-ESM-3178C6?logo=typescript&amp;logoColor=white" /></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-22A699.svg" /></a>
+  <a href="#project-status"><img alt="Active development" src="https://img.shields.io/badge/Status-Active%20development-F4A261" /></a>
+</p>
 
-## Compatibility and limitations
+<p>
+  <a href="#why-giws">Overview</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#development">Development</a> ·
+  <a href="#roadmap">Roadmap</a>
+</p>
 
-- GNOME Shell 46 only.
-- Static workspaces are required.
-- Workspaces must span every display.
-- Only left and right workspace switching is handled.
-- Only normal application windows participate in switching; sticky and special
-  windows are ignored.
-- Secondary-monitor animation is not implemented yet.
+</div>
+
+<!-- TODO(media): Add a short GIF showing workspace switching on the active monitor. Recommended: assets/demo.gif, under 8 MB. -->
+
+---
+
+## Why GIWS?
+
+GNOME normally treats workspace switching as a global action. GIWS keeps the
+familiar shortcuts, but makes the result depend on the monitor under your
+pointer.
+
+| Active display     | What happens                                                  |
+| ------------------ | ------------------------------------------------------------- |
+| Primary monitor    | GNOME performs its native global workspace transition.        |
+| Secondary monitor  | Only that monitor's application windows change workspace.     |
+| All other monitors | Their visible windows and workspace context remain untouched. |
+
+No replacement keybindings, separate workspace switcher or new interaction
+model: keep using the GNOME workflow you already know.
+
+## How it works
+
+1. GIWS listens to GNOME's existing `switch-to-workspace-left` and
+   `switch-to-workspace-right` shortcuts.
+2. It identifies the monitor under the pointer when a shortcut is pressed.
+3. It delegates primary-monitor switching back to GNOME, or moves the relevant
+   windows when a secondary monitor is active.
+
+When the extension is disabled, the original GNOME keybinding handlers are
+restored.
+
+<!-- TODO(media): Add a two-column screenshot here: primary-monitor switch vs secondary-monitor switch. Recommended: assets/workspace-behaviour.png. -->
+
+## Highlights
+
+- **Monitor-aware switching** — change the workspace context where you are
+  working.
+- **Native shortcuts** — configure keys in GNOME Settings as usual.
+- **Primary monitor stays native** — GIWS preserves GNOME's standard global
+  transition there.
+- **Clean lifecycle** — original handlers are restored when GIWS is disabled.
+- **TypeScript codebase** — compiled to native GJS ES modules with strict
+  checks.
+- **Isolated runtime validation** — smoke tests exercise GNOME Shell without
+  modifying the active desktop session.
 
 ## Installation
 
-### From a CI build
+> [!IMPORTANT]
+> GIWS currently targets **GNOME Shell 46**, static workspaces, and workspaces
+> spanning all displays. See [Project status](#project-status) before installing.
 
-Open the latest successful
-[CI run](https://github.com/Armontex/GIWS/actions/workflows/ci.yml?query=branch%3Adevelop),
-download the `giws-extension` artifact and extract
-`giws@armontex.shell-extension.zip`.
+### From a CI artifact
 
-Install it with:
+1. Open the latest successful
+   [develop CI run](https://github.com/Armontex/GIWS/actions/workflows/ci.yml?query=branch%3Adevelop).
+2. Download and unpack the `giws-extension` artifact.
+3. Install the enclosed `giws@armontex.shell-extension.zip`:
 
 ```bash
 gnome-extensions install --force giws@armontex.shell-extension.zip
 ```
 
-### From source
-
-Requirements:
-
-- Node.js 22.18 or newer;
-- npm 10;
-- `zip`, `glib-compile-schemas` and `gnome-extensions`;
-- GNOME Shell 46 for installation and runtime tests.
-
-Build and install:
-
-```bash
-npm ci
-npm run install:extension
-```
-
-On Wayland, log out and back in after installing a new extension. Before
-enabling GIWS, configure GNOME to use static workspaces on all displays:
+On Wayland, log out and back in after installing a new extension. Then prepare
+GNOME and enable GIWS:
 
 ```bash
 gsettings set org.gnome.mutter dynamic-workspaces false
@@ -67,22 +100,84 @@ gsettings set org.gnome.mutter workspaces-only-on-primary false
 gnome-extensions enable giws@armontex
 ```
 
-GIWS refuses to enable when either workspace requirement is not met and leaves
+GIWS refuses to enable when either workspace requirement is not met, leaving
 the native shortcuts unchanged.
+
+<!-- TODO(media): Add an Extension Manager installation screenshot after the extension is published. Recommended: assets/extension-manager.png. -->
+
+### From source
+
+Requirements:
+
+- Node.js 22.18 or newer and npm 10;
+- `zip`, `glib-compile-schemas` and `gnome-extensions`;
+- GNOME Shell 46 for installation and runtime validation.
+
+```bash
+git clone --branch develop https://github.com/Armontex/GIWS.git
+cd GIWS
+npm ci
+npm run install:extension
+```
 
 ## Usage
 
-Use the normal `switch-to-workspace-left` and
-`switch-to-workspace-right` shortcuts while the required monitor is active.
-Common GNOME defaults include:
+Place the pointer on the monitor you want to control, then use GNOME's regular
+workspace shortcuts. Common defaults include:
 
-- `Ctrl+Alt+Left` and `Ctrl+Alt+Right`;
-- `Super+Page Up` and `Super+Page Down`.
+- `Ctrl+Alt+Left` / `Ctrl+Alt+Right`;
+- `Super+Page Up` / `Super+Page Down`.
 
-The exact shortcuts remain controlled by GNOME Settings. On the primary monitor,
-GNOME performs its normal global transition. On a secondary monitor, GIWS rotates
-that monitor's application windows between workspaces without changing the
-global active workspace.
+The exact key combinations remain controlled by GNOME Settings.
+
+<!-- TODO(media): Add a preferences screenshot when user-facing settings are available. Recommended: assets/preferences.png. -->
+
+## Project status
+
+GIWS is under active development. `develop` contains the latest integrated
+changes; `main` is reserved for stable releases.
+
+Current compatibility and limitations:
+
+| Area                  | Current support                   |
+| --------------------- | --------------------------------- |
+| GNOME Shell           | Version 46                        |
+| Workspace mode        | Static workspaces                 |
+| Display configuration | Workspaces spanning every display |
+| Navigation            | Left and right                    |
+| Windows               | Normal application windows        |
+| Secondary animation   | Not implemented yet               |
+
+Sticky windows, special windows and other non-standard window types are left
+untouched. A short manual check on physical monitors is still recommended for
+visible animation and keyboard feel.
+
+## Quality and testing
+
+The regular quality gate covers formatting, ESLint, TypeScript, production
+builds and the full Vitest suite:
+
+```bash
+npm run check
+```
+
+Unit tests cover GNOME-independent workspace calculations, shell adapters,
+lifecycle cleanup and the build artifact contract.
+
+The Linux-only runtime smoke test starts separate headless GNOME Shell sessions
+with isolated D-Bus, dconf and XDG directories. It validates:
+
+- extension lifecycle: `ACTIVE → INACTIVE → ACTIVE`;
+- discovery of two virtual monitors;
+- stock keyboard shortcut dispatch through Mutter;
+- primary and secondary monitor window placement;
+- absence of GJS runtime errors during the interaction scenario.
+
+```bash
+npm run runtime:smoke
+```
+
+The smoke environment does not modify the active desktop session.
 
 ## Development
 
@@ -92,44 +187,19 @@ npm run check
 npm run pack
 ```
 
-Important commands:
-
 | Command                 | Purpose                                             |
 | ----------------------- | --------------------------------------------------- |
 | `npm run check`         | Formatting, linting, type checking, build and tests |
 | `npm test`              | Build and run the test suite                        |
 | `npm run build`         | Compile the extension into `dist/`                  |
-| `npm run pack`          | Create `giws@armontex.shell-extension.zip`          |
+| `npm run pack`          | Create the installable extension ZIP                |
 | `npm run runtime:smoke` | Run isolated GNOME lifecycle and interaction checks |
 
 Commits and pull-request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/). Jira references
-are not used.
+are intentionally not used.
 
-## Testing
-
-Unit tests cover the GNOME-independent workspace calculations, shell adapters,
-lifecycle cleanup and build artifact contract.
-
-The Linux-only runtime smoke test starts separate headless GNOME Shell sessions
-with isolated D-Bus, dconf and XDG directories. It verifies:
-
-- extension lifecycle `ACTIVE -> INACTIVE -> ACTIVE`;
-- discovery of two virtual monitors;
-- stock keyboard shortcut dispatch through Mutter;
-- primary and secondary monitor window placement;
-- absence of GJS runtime errors during the interaction scenario.
-
-Run it on a machine with GNOME Shell 46:
-
-```bash
-npm run runtime:smoke
-```
-
-The active desktop session is not modified. A short manual test on physical
-monitors is still required to assess visible animation and keyboard feel.
-
-## Project structure
+### Project structure
 
 ```text
 src/
@@ -145,6 +215,13 @@ src/
 
 Runtime resources must be registered with the disposable stack and released
 from `disable()`.
+
+## Roadmap
+
+- [ ] Add polished secondary-monitor transition animation.
+- [ ] Expand support to newer GNOME Shell releases.
+- [ ] Publish GIWS for one-click installation through Extension Manager.
+- [ ] Add the project logo, visual walkthrough and real multi-monitor demo.
 
 ## Troubleshooting
 
@@ -165,3 +242,7 @@ If the session cannot load user extensions, disable them globally from a TTY:
 ```bash
 gsettings set org.gnome.shell disable-user-extensions true
 ```
+
+## License
+
+GIWS is available under the [MIT License](LICENSE).
