@@ -1,9 +1,27 @@
-import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+import {WorkspaceSwitcher} from './core/workspace-switcher.js';
+import {SwitchDirection} from './core/workspaces.js';
 import {DisposableStack} from './lifecycle/disposables.js';
 import {Logger} from './logging/logger.js';
 import {SETTINGS_SCHEMA} from './settings/keys.js';
 import {GiwsSettings} from './settings/settings.js';
+import {
+    StockWorkspaceKeybindings,
+    type KeybindingRegistry,
+    type WorkspaceKeyHandler,
+} from './shell/keybindings.js';
+import {assertWorkspaceConfiguration} from './shell/workspace-configuration.js';
+import {GnomeWorkspaceEnvironment} from './shell/workspace-environment.js';
+import type {ShellWindow} from './shell/workspace-windows.js';
+
+interface NativeWorkspaceWindowManager extends KeybindingRegistry {
+    _showWorkspaceSwitcher: WorkspaceKeyHandler;
+}
 
 export default class GiwsExtension extends Extension {
     #resources: DisposableStack | null = null;
@@ -16,7 +34,40 @@ export default class GiwsExtension extends Extension {
 
         this.#resources = resources;
         this.#logger = logger;
-        logger.debug('enabled');
+
+        try {
+            assertWorkspaceConfiguration({
+                dynamicWorkspaces: Meta.prefs_get_dynamic_workspaces(),
+                primaryOnly: Meta.prefs_get_workspaces_only_on_primary(),
+            });
+
+            const shellGlobal = global as unknown as Shell.Global;
+            const environment = new GnomeWorkspaceEnvironment(
+                shellGlobal.display,
+                shellGlobal.workspace_manager,
+                Meta.WindowType.NORMAL
+            );
+            const switcher = new WorkspaceSwitcher(environment);
+            const windowManager = Main.wm as unknown as NativeWorkspaceWindowManager;
+            const nativeHandler: WorkspaceKeyHandler = (display, window, event, binding) => {
+                windowManager._showWorkspaceSwitcher(display, window, event, binding);
+            };
+            const modes = Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW;
+            const keybindings = new StockWorkspaceKeybindings(windowManager, modes, nativeHandler);
+
+            keybindings.enable(
+                createHandler(SwitchDirection.Previous, switcher, nativeHandler, logger),
+                createHandler(SwitchDirection.Next, switcher, nativeHandler, logger)
+            );
+            resources.defer(() => {
+                keybindings.dispose();
+            });
+            logger.debug('enabled');
+        } catch (error) {
+            logger.error('enable failed', error);
+            this.disable();
+            throw error;
+        }
     }
 
     override disable(): void {
@@ -30,4 +81,21 @@ export default class GiwsExtension extends Extension {
             this.#logger = null;
         }
     }
+}
+
+function createHandler(
+    direction: SwitchDirection,
+    switcher: WorkspaceSwitcher<ShellWindow>,
+    nativeHandler: WorkspaceKeyHandler,
+    logger: Logger
+): WorkspaceKeyHandler {
+    return (display, window, event, binding): void => {
+        try {
+            switcher.switch(direction, () => {
+                nativeHandler(display, window, event, binding);
+            });
+        } catch (error) {
+            logger.error('workspace switch failed', error);
+        }
+    };
 }
