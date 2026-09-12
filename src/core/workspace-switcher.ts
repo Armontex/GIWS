@@ -28,21 +28,22 @@ export class WorkspaceSwitcher<WindowId> {
 
         if (activeMonitor === this.#environment.primaryMonitor()) {
             const previousWorkspace = this.#environment.activeWorkspace();
+            const workspaceCount = this.#environment.workspaceCount();
+            const targetWorkspace = previousWorkspace + direction;
 
-            nativeSwitch();
-            const activeWorkspace = this.#environment.activeWorkspace();
-
-            if (activeWorkspace !== previousWorkspace) {
+            if (targetWorkspace >= 0 && targetWorkspace < workspaceCount) {
                 this.#environment.apply(
                     planGlobalSwitchCompensation(
                         this.#environment.windowPlacements(),
                         activeMonitor,
-                        this.#environment.workspaceCount(),
+                        workspaceCount,
                         previousWorkspace,
-                        activeWorkspace
+                        targetWorkspace
                     )
                 );
             }
+
+            nativeSwitch();
             return;
         }
 
