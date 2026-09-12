@@ -7,6 +7,8 @@ const repositoryRoot = resolve(import.meta.dirname, '..');
 const sourceMetadataPath = resolve(repositoryRoot, 'metadata.json');
 const builtMetadataPath = resolve(repositoryRoot, 'dist', 'metadata.json');
 const builtExtensionPath = resolve(repositoryRoot, 'dist', 'extension.js');
+const builtPreferencesPath = resolve(repositoryRoot, 'dist', 'prefs.js');
+const builtSchemaPath = resolve(repositoryRoot, 'dist', 'schemas', 'gschemas.compiled');
 
 describe('extension artifact', () => {
     test('declares the supported GNOME Shell contract', () => {
@@ -18,6 +20,7 @@ describe('extension artifact', () => {
             expect.objectContaining({
                 name: 'GIWS',
                 'shell-version': ['46'],
+                'settings-schema': 'org.gnome.shell.extensions.giws',
                 url: 'https://github.com/Armontex/GIWS',
                 uuid: 'giws@armontex',
             })
@@ -27,9 +30,27 @@ describe('extension artifact', () => {
     test('builds the files required by GNOME Shell', () => {
         expect(existsSync(builtMetadataPath)).toBe(true);
         expect(existsSync(builtExtensionPath)).toBe(true);
+        expect(existsSync(builtPreferencesPath)).toBe(true);
+        expect(existsSync(builtSchemaPath)).toBe(true);
 
         const extension = readFileSync(builtExtensionPath, 'utf8');
 
         expect(extension).toContain('export default class GiwsExtension');
+    });
+
+    test('builds the project modules used by the GNOME entry points', () => {
+        const modules = [
+            'core/monitor.js',
+            'lifecycle/disposables.js',
+            'logging/logger.js',
+            'preferences/preferences.js',
+            'settings/keys.js',
+            'settings/settings.js',
+            'shell/active-monitor.js',
+        ];
+
+        for (const module of modules) {
+            expect(existsSync(resolve(repositoryRoot, 'dist', module)), module).toBe(true);
+        }
     });
 });

@@ -1,6 +1,7 @@
 {
   "name": "GIWS",
   "description": "Independent workspaces per monitor for GNOME Shell",
+  "settings-schema": "org.gnome.shell.extensions.giws",
   "uuid": "giws@armontex",
   "url": "https://github.com/Armontex/GIWS",
   "shell-version": ["46"]
