@@ -11,6 +11,8 @@
   Move through workspaces on the display you are using without disturbing the others.
 </p>
 
+<p><strong>English</strong> · <a href="docs/readmes/README.ru.md">Русский</a></p>
+
 <p>
   <a href="https://github.com/Armontex/GIWS/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Armontex/GIWS/actions/workflows/ci.yml/badge.svg?branch=develop" /></a>
   <a href="https://release.gnome.org/46/"><img alt="GNOME Shell 46" src="https://img.shields.io/badge/GNOME%20Shell-46-4A86CF?logo=gnome&amp;logoColor=white" /></a>
