@@ -20,5 +20,5 @@
     "types": ["node", "vitest/globals"],
     "useUnknownInCatchVariables": true
   },
-  "include": ["ambient.d.ts", "src/**/*.ts", "tests/**/*.ts"]
+  "include": ["ambient.d.ts", "scripts/**/*.ts", "src/**/*.ts", "tests/**/*.ts"]
 }
