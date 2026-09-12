@@ -1,17 +1,88 @@
 # GIWS
 
-Independent workspaces per monitor for GNOME Shell 46, written in TypeScript
-and compiled to native GJS ES modules.
+[![CI](https://github.com/Armontex/GIWS/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/Armontex/GIWS/actions/workflows/ci.yml)
 
-The project targets GNOME Shell 46. Runtime functionality is developed on the
-`develop` branch; `main` remains the stable integration branch.
+GIWS provides independent workspace switching per monitor for GNOME Shell 46.
+It is written in TypeScript and compiled to native GJS ES modules.
 
-## Requirements
+The project is under active development. `develop` contains the latest runtime
+changes; `main` is the stable integration branch.
 
-- GNOME Shell 46
-- Node.js 22 or newer
-- npm 10
-- `zip` and `gnome-extensions` for local installation
+## Features
+
+- Uses the existing GNOME workspace shortcuts without rewriting them.
+- Switches only the active secondary monitor while leaving other monitors in
+  place.
+- Preserves native GNOME switching on the primary monitor.
+- Restores the original GNOME keybinding handlers when disabled.
+- Provides an isolated two-monitor runtime smoke test.
+
+## Compatibility and limitations
+
+- GNOME Shell 46 only.
+- Static workspaces are required.
+- Workspaces must span every display.
+- Only left and right workspace switching is handled.
+- Only normal application windows participate in switching; sticky and special
+  windows are ignored.
+- Secondary-monitor animation is not implemented yet.
+
+## Installation
+
+### From a CI build
+
+Open the latest successful
+[CI run](https://github.com/Armontex/GIWS/actions/workflows/ci.yml?query=branch%3Adevelop),
+download the `giws-extension` artifact and extract
+`giws@armontex.shell-extension.zip`.
+
+Install it with:
+
+```bash
+gnome-extensions install --force giws@armontex.shell-extension.zip
+```
+
+### From source
+
+Requirements:
+
+- Node.js 22.18 or newer;
+- npm 10;
+- `zip`, `glib-compile-schemas` and `gnome-extensions`;
+- GNOME Shell 46 for installation and runtime tests.
+
+Build and install:
+
+```bash
+npm ci
+npm run install:extension
+```
+
+On Wayland, log out and back in after installing a new extension. Before
+enabling GIWS, configure GNOME to use static workspaces on all displays:
+
+```bash
+gsettings set org.gnome.mutter dynamic-workspaces false
+gsettings set org.gnome.mutter workspaces-only-on-primary false
+gnome-extensions enable giws@armontex
+```
+
+GIWS refuses to enable when either workspace requirement is not met and leaves
+the native shortcuts unchanged.
+
+## Usage
+
+Use the normal `switch-to-workspace-left` and
+`switch-to-workspace-right` shortcuts while the required monitor is active.
+Common GNOME defaults include:
+
+- `Ctrl+Alt+Left` and `Ctrl+Alt+Right`;
+- `Super+Page Up` and `Super+Page Down`.
+
+The exact shortcuts remain controlled by GNOME Settings. On the primary monitor,
+GNOME performs its normal global transition. On a secondary monitor, GIWS rotates
+that monitor's application windows between workspaces without changing the
+global active workspace.
 
 ## Development
 
@@ -21,80 +92,49 @@ npm run check
 npm run pack
 ```
 
-Run the GNOME integration smoke test on a Linux development host with:
+Important commands:
+
+| Command                 | Purpose                                             |
+| ----------------------- | --------------------------------------------------- |
+| `npm run check`         | Formatting, linting, type checking, build and tests |
+| `npm test`              | Build and run the test suite                        |
+| `npm run build`         | Compile the extension into `dist/`                  |
+| `npm run pack`          | Create `giws@armontex.shell-extension.zip`          |
+| `npm run runtime:smoke` | Run isolated GNOME lifecycle and interaction checks |
+
+Commits and pull-request titles follow
+[Conventional Commits](https://www.conventionalcommits.org/). Jira references
+are not used.
+
+## Testing
+
+Unit tests cover the GNOME-independent workspace calculations, shell adapters,
+lifecycle cleanup and build artifact contract.
+
+The Linux-only runtime smoke test starts separate headless GNOME Shell sessions
+with isolated D-Bus, dconf and XDG directories. It verifies:
+
+- extension lifecycle `ACTIVE -> INACTIVE -> ACTIVE`;
+- discovery of two virtual monitors;
+- stock keyboard shortcut dispatch through Mutter;
+- primary and secondary monitor window placement;
+- absence of GJS runtime errors during the interaction scenario.
+
+Run it on a machine with GNOME Shell 46:
 
 ```bash
 npm run runtime:smoke
 ```
 
-The smoke test starts separate headless GNOME Shell sessions with their own D-Bus
-session, dconf profile and temporary XDG directories. It first verifies an
-`ACTIVE -> INACTIVE -> ACTIVE` lifecycle on two virtual monitors. A second session
-creates real test windows, moves a virtual pointer between the monitors and sends
-the stock workspace shortcut through Mutter to verify window placement on both
-the primary and secondary monitor with animations enabled. The temporary
-extension installation and settings are removed after the run; the active desktop
-session is not modified.
+The active desktop session is not modified. A short manual test on physical
+monitors is still required to assess visible animation and keyboard feel.
 
-A short manual test on real monitors remains necessary for the visible animation
-and physical keyboard experience.
-
-The package is written to `giws@armontex.shell-extension.zip`. Install it with:
-
-```bash
-npm run install:extension
-```
-
-On Wayland, log out and back in before enabling a newly installed extension:
-
-```bash
-gnome-extensions enable giws@armontex
-```
-
-Inspect runtime errors with:
-
-```bash
-journalctl --user -f -o cat /usr/bin/gnome-shell
-```
-
-If an extension breaks the session, disable user extensions from a TTY:
-
-```bash
-gsettings set org.gnome.shell disable-user-extensions true
-```
-
-Commits and pull-request titles follow
-[Conventional Commits](https://www.conventionalcommits.org/); Jira references
-are not used.
-
-## Workspace switching
-
-GIWS handles the existing `switch-to-workspace-left` and
-`switch-to-workspace-right` shortcuts, including `Ctrl+Alt+Left/Right` and
-`Super+Page Up/Down` when they are present in the system configuration. It does
-not rewrite the user's shortcuts and restores the native GNOME handlers when
-disabled.
-
-On the primary monitor, GNOME performs the native workspace transition. On a
-secondary monitor, GIWS rotates normal application windows while leaving the
-other monitors unchanged. Secondary-monitor animation is not implemented yet.
-
-The first runtime version requires static workspaces spanning all displays:
-
-```bash
-gsettings set org.gnome.mutter dynamic-workspaces false
-gsettings set org.gnome.mutter workspaces-only-on-primary false
-```
-
-If either requirement is not met, enabling the extension fails without changing
-the shortcuts.
-
-## Source layout
+## Project structure
 
 ```text
 src/
-├── core/          # GNOME-independent domain types
-├── lifecycle/     # cleanup of signals, keybindings, timeouts and actors
+├── core/          # GNOME-independent workspace logic
+├── lifecycle/     # cleanup of registered runtime resources
 ├── logging/       # contextual journal logging
 ├── preferences/   # preferences window components
 ├── settings/      # typed GSettings access
@@ -103,5 +143,25 @@ src/
 └── prefs.ts       # preferences composition root
 ```
 
-Modules are added only when they own real behavior. Runtime resources must be
-registered with the disposable stack and released from `disable()`.
+Runtime resources must be registered with the disposable stack and released
+from `disable()`.
+
+## Troubleshooting
+
+Follow GNOME Shell logs:
+
+```bash
+journalctl --user -f -o cat /usr/bin/gnome-shell
+```
+
+Disable GIWS from a terminal:
+
+```bash
+gnome-extensions disable giws@armontex
+```
+
+If the session cannot load user extensions, disable them globally from a TTY:
+
+```bash
+gsettings set org.gnome.shell disable-user-extensions true
+```
