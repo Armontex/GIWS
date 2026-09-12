@@ -2,9 +2,12 @@ import {describe, expect, test} from 'vitest';
 
 import {
     assertVirtualMonitors,
+    assertNoShellRuntimeErrors,
     buildGSettingsCommands,
     buildHeadlessShellArguments,
+    createInteractionEnvironment,
     createIsolatedEnvironment,
+    extractInteractionResult,
     extractSmokeResult,
     extensionInstallPath,
     parseExtensionState,
@@ -22,6 +25,18 @@ describe('runtime smoke harness', () => {
             '--wayland-display=giws-smoke',
             '--virtual-monitor=1280x720',
             '--virtual-monitor=1280x720',
+        ]);
+    });
+
+    test('loads the GNOME automation module for the interaction session', () => {
+        expect(buildHeadlessShellArguments('/tmp/giws-smoke/interaction-smoke.js')).toEqual([
+            '--headless',
+            '--no-x11',
+            '--mode=user',
+            '--wayland-display=giws-smoke',
+            '--virtual-monitor=1280x720',
+            '--virtual-monitor=1280x720',
+            '--automation-script=/tmp/giws-smoke/interaction-smoke.js',
         ]);
     });
 
@@ -49,6 +64,20 @@ describe('runtime smoke harness', () => {
         expect(environment).not.toHaveProperty('DISPLAY');
         expect(environment).not.toHaveProperty('WAYLAND_DISPLAY');
         expect(environment).not.toHaveProperty('XDG_SESSION_ID');
+    });
+
+    test('routes test clients only to the isolated Wayland compositor', () => {
+        const environment = createInteractionEnvironment(
+            createIsolatedEnvironment('/tmp/giws-smoke-test', {})
+        );
+
+        expect(environment).toEqual(
+            expect.objectContaining({
+                GDK_BACKEND: 'wayland',
+                WAYLAND_DISPLAY: 'giws-smoke',
+                XDG_SESSION_TYPE: 'wayland',
+            })
+        );
     });
 
     test('signals the complete isolated process group', () => {
@@ -127,5 +156,19 @@ describe('runtime smoke harness', () => {
         expect(() => extractSmokeResult('service message only')).toThrow(
             'isolated session exited without a success result'
         );
+        expect(
+            extractInteractionResult(
+                'service message\ninteraction smoke passed: shortcuts and window placement\n'
+            )
+        ).toBe('interaction smoke passed: shortcuts and window placement');
+    });
+
+    test('rejects GJS runtime errors even when GNOME exits successfully', () => {
+        expect(() => {
+            assertNoShellRuntimeErrors('ordinary session warning');
+        }).not.toThrow();
+        expect(() => {
+            assertNoShellRuntimeErrors('GNOME Shell-CRITICAL **: JS ERROR: broken animation');
+        }).toThrow('isolated GNOME reported a GJS runtime error');
     });
 });
