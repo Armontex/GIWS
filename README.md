@@ -21,6 +21,22 @@ npm run check
 npm run pack
 ```
 
+Run the GNOME integration smoke test on a Linux development host with:
+
+```bash
+npm run runtime:smoke
+```
+
+The smoke test starts a separate headless GNOME Shell on its own D-Bus session,
+dconf profile and temporary XDG directories. It exposes two virtual monitors and
+verifies that GIWS can complete an `ACTIVE -> INACTIVE -> ACTIVE` lifecycle. The
+temporary extension installation and settings are removed after the run; the
+active desktop session is not modified.
+
+This check covers loading, monitor discovery and lifecycle cleanup. Actual
+keyboard input, window movement and animations still require a short manual test
+on a real multi-monitor session.
+
 The package is written to `giws@armontex.shell-extension.zip`. Install it with:
 
 ```bash

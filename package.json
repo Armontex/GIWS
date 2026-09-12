@@ -5,7 +5,7 @@
   "description": "Independent workspaces per monitor for GNOME Shell",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "packageManager": "npm@10.9.8",
   "scripts": {
@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "pack": "npm run build && cd dist && zip -qr ../giws@armontex.shell-extension.zip .",
     "pretest": "npm run build",
+    "runtime:smoke": "npm run build && node scripts/runtime-smoke.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
