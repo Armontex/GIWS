@@ -45,10 +45,31 @@ If an extension breaks the session, disable user extensions from a TTY:
 gsettings set org.gnome.shell disable-user-extensions true
 ```
 
-The current skeleton intentionally implements no workspace behavior. Commits
-and pull-request titles follow
+Commits and pull-request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/); Jira references
 are not used.
+
+## Workspace switching
+
+GIWS handles the existing `switch-to-workspace-left` and
+`switch-to-workspace-right` shortcuts, including `Ctrl+Alt+Left/Right` and
+`Super+Page Up/Down` when they are present in the system configuration. It does
+not rewrite the user's shortcuts and restores the native GNOME handlers when
+disabled.
+
+On the primary monitor, GNOME performs the native workspace transition. On a
+secondary monitor, GIWS rotates normal application windows while leaving the
+other monitors unchanged. Secondary-monitor animation is not implemented yet.
+
+The first runtime version requires static workspaces spanning all displays:
+
+```bash
+gsettings set org.gnome.mutter dynamic-workspaces false
+gsettings set org.gnome.mutter workspaces-only-on-primary false
+```
+
+If either requirement is not met, enabling the extension fails without changing
+the shortcuts.
 
 ## Source layout
 
