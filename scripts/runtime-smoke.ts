@@ -1,10 +1,11 @@
 import {execFile as execFileCallback, spawn} from 'node:child_process';
 import {once} from 'node:events';
-import {chmod, cp, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
+import {ModuleKind, ScriptTarget, transpileModule} from 'typescript';
 
 const ACTIVE_SESSION_VARIABLES = new Set([
     'DBUS_SESSION_BUS_ADDRESS',
@@ -13,6 +14,7 @@ const ACTIVE_SESSION_VARIABLES = new Set([
     'XDG_SESSION_ID',
 ]);
 const EXTENSION_UUID = 'giws@armontex';
+const INTERACTION_SUCCESS_PREFIX = 'interaction smoke passed:';
 const SUCCESS_PREFIX = 'runtime smoke passed:';
 const execFile = promisify(execFileCallback);
 const repositoryRoot = resolve(import.meta.dirname, '..');
@@ -38,8 +40,8 @@ export function buildGSettingsCommands(): GSettingsCommand[] {
     ];
 }
 
-export function buildHeadlessShellArguments(): string[] {
-    return [
+export function buildHeadlessShellArguments(automationScript?: string): string[] {
+    const arguments_ = [
         '--headless',
         '--no-x11',
         '--mode=user',
@@ -47,6 +49,12 @@ export function buildHeadlessShellArguments(): string[] {
         '--virtual-monitor=1280x720',
         '--virtual-monitor=1280x720',
     ];
+
+    if (automationScript !== undefined) {
+        arguments_.push(`--automation-script=${automationScript}`);
+    }
+
+    return arguments_;
 }
 
 export function createIsolatedEnvironment(
@@ -67,6 +75,17 @@ export function createIsolatedEnvironment(
         XDG_DATA_HOME: join(root, 'data'),
         XDG_RUNTIME_DIR: join(root, 'runtime'),
         XDG_STATE_HOME: join(root, 'state'),
+    };
+}
+
+export function createInteractionEnvironment(
+    environment: IsolatedEnvironment
+): IsolatedEnvironment {
+    return {
+        ...environment,
+        GDK_BACKEND: 'wayland',
+        WAYLAND_DISPLAY: 'giws-smoke',
+        XDG_SESSION_TYPE: 'wayland',
     };
 }
 
@@ -116,15 +135,29 @@ export function assertVirtualMonitors(displayState: string): void {
 }
 
 export function extractSmokeResult(output: string): string {
+    return extractResult(output, SUCCESS_PREFIX);
+}
+
+export function extractInteractionResult(output: string): string {
+    return extractResult(output, INTERACTION_SUCCESS_PREFIX);
+}
+
+function extractResult(output: string, prefix: string): string {
     const result = output
         .split('\n')
         .map(line => line.trim())
-        .find(line => line.startsWith(SUCCESS_PREFIX));
+        .find(line => line.startsWith(prefix));
 
     if (result === undefined) {
         throw new Error('isolated session exited without a success result');
     }
     return result;
+}
+
+export function assertNoShellRuntimeErrors(output: string): void {
+    if (output.includes('GNOME Shell-CRITICAL') || output.includes('JS ERROR:')) {
+        throw new Error('isolated GNOME reported a GJS runtime error');
+    }
 }
 
 type SignalSender = (processId: number, signal: NodeJS.Signals) => boolean;
@@ -177,6 +210,10 @@ export function watchForInterruption(
 }
 
 async function run(): Promise<void> {
+    if (process.argv.includes('--interaction-session')) {
+        await runInteractionSession();
+        return;
+    }
     if (process.argv.includes('--session')) {
         await runIsolatedSession();
         return;
@@ -189,18 +226,30 @@ async function runParent(): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), 'giws-smoke-'));
 
     try {
-        await prepareRuntime(root);
+        const automationScript = await prepareRuntime(root);
         const environment = createIsolatedEnvironment(root, process.env);
-        const stdout = await runIsolatedProcess(environment);
+        const lifecycleOutput = await runIsolatedProcess(environment, '--session');
+        const interactionEnvironment = createInteractionEnvironment(environment);
+        interactionEnvironment.GIWS_AUTOMATION_SCRIPT = automationScript;
+        const interactionOutput = await runIsolatedProcess(
+            interactionEnvironment,
+            '--interaction-session'
+        );
 
-        process.stdout.write(`${extractSmokeResult(stdout)}\n`);
+        process.stdout.write(`${extractSmokeResult(lifecycleOutput)}\n`);
+        process.stdout.write(`${extractInteractionResult(interactionOutput)}\n`);
     } finally {
         await rm(root, {force: true, recursive: true});
     }
 }
 
-async function prepareRuntime(root: string): Promise<void> {
+async function prepareRuntime(root: string): Promise<string> {
     const environment = createIsolatedEnvironment(root, process.env);
+    const automationScript = join(root, 'interaction-smoke.js');
+    const automationSource = await readFile(
+        resolve(repositoryRoot, 'scripts', 'interaction-smoke.ts'),
+        'utf8'
+    );
 
     await Promise.all([
         mkdir(environment.HOME, {recursive: true}),
@@ -212,17 +261,31 @@ async function prepareRuntime(root: string): Promise<void> {
     ]);
     await chmod(environment.XDG_RUNTIME_DIR, 0o700);
     await writeFile(environment.DCONF_PROFILE, 'user-db:user\n', 'utf8');
+    await writeFile(
+        automationScript,
+        transpileModule(automationSource, {
+            compilerOptions: {
+                module: ModuleKind.ESNext,
+                target: ScriptTarget.ES2023,
+            },
+        }).outputText,
+        'utf8'
+    );
     await cp(resolve(repositoryRoot, 'dist'), extensionInstallPath(root), {recursive: true});
+    return automationScript;
 }
 
-async function runIsolatedProcess(environment: IsolatedEnvironment): Promise<string> {
+async function runIsolatedProcess(
+    environment: IsolatedEnvironment,
+    sessionMode: '--interaction-session' | '--session'
+): Promise<string> {
     const interruption = watchForInterruption();
     let child: ReturnType<typeof spawn>;
 
     try {
         child = spawn(
             'dbus-run-session',
-            ['--', process.execPath, fileURLToPath(import.meta.url), '--session'],
+            ['--', process.execPath, fileURLToPath(import.meta.url), sessionMode],
             {
                 cwd: repositoryRoot,
                 detached: true,
@@ -367,6 +430,47 @@ async function runIsolatedSession(): Promise<void> {
             shell.kill('SIGKILL');
             await once(shell, 'exit');
         }
+    }
+}
+
+async function runInteractionSession(): Promise<void> {
+    for (const [schema, key, value] of buildGSettingsCommands()) {
+        await execFile('gsettings', ['set', schema, key, value], {encoding: 'utf8'});
+    }
+
+    const automationScript = process.env.GIWS_AUTOMATION_SCRIPT;
+    if (automationScript === undefined) {
+        throw new Error('interaction automation script is not configured');
+    }
+
+    const shell = spawn('gnome-shell', buildHeadlessShellArguments(automationScript), {
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let shellLog = '';
+
+    shell.stdout.setEncoding('utf8');
+    shell.stderr.setEncoding('utf8');
+    shell.stdout.on('data', chunk => {
+        shellLog += String(chunk);
+    });
+    shell.stderr.on('data', chunk => {
+        shellLog += String(chunk);
+    });
+
+    const [code, signal] = (await once(shell, 'exit')) as [number | null, NodeJS.Signals | null];
+    if (code !== 0) {
+        throw new Error(
+            `interaction GNOME session exited with ${String(code ?? signal)}\n${shellLog}`
+        );
+    }
+
+    try {
+        assertNoShellRuntimeErrors(shellLog);
+        process.stdout.write(`${extractInteractionResult(shellLog)}\n`);
+    } catch (error) {
+        process.stderr.write(shellLog);
+        throw error;
     }
 }
 

@@ -27,15 +27,17 @@ Run the GNOME integration smoke test on a Linux development host with:
 npm run runtime:smoke
 ```
 
-The smoke test starts a separate headless GNOME Shell on its own D-Bus session,
-dconf profile and temporary XDG directories. It exposes two virtual monitors and
-verifies that GIWS can complete an `ACTIVE -> INACTIVE -> ACTIVE` lifecycle. The
-temporary extension installation and settings are removed after the run; the
-active desktop session is not modified.
+The smoke test starts separate headless GNOME Shell sessions with their own D-Bus
+session, dconf profile and temporary XDG directories. It first verifies an
+`ACTIVE -> INACTIVE -> ACTIVE` lifecycle on two virtual monitors. A second session
+creates real test windows, moves a virtual pointer between the monitors and sends
+the stock workspace shortcut through Mutter to verify window placement on both
+the primary and secondary monitor with animations enabled. The temporary
+extension installation and settings are removed after the run; the active desktop
+session is not modified.
 
-This check covers loading, monitor discovery and lifecycle cleanup. Actual
-keyboard input, window movement and animations still require a short manual test
-on a real multi-monitor session.
+A short manual test on real monitors remains necessary for the visible animation
+and physical keyboard experience.
 
 The package is written to `giws@armontex.shell-extension.zip`. Install it with:
 
