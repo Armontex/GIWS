@@ -1,5 +1,5 @@
 import {execFileSync} from 'node:child_process';
-import {copyFile, rm} from 'node:fs/promises';
+import {copyFile, mkdir, rm} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
@@ -14,3 +14,16 @@ execFileSync(process.execPath, [compiler, '--project', 'tsconfig.build.json'], {
 });
 
 await copyFile(resolve(repositoryRoot, 'metadata.json'), resolve(outputDirectory, 'metadata.json'));
+
+const schemaDirectory = resolve(outputDirectory, 'schemas');
+const schemaFile = 'org.gnome.shell.extensions.giws.gschema.xml';
+
+await mkdir(schemaDirectory, {recursive: true});
+await copyFile(
+    resolve(repositoryRoot, 'schemas', schemaFile),
+    resolve(schemaDirectory, schemaFile)
+);
+execFileSync('glib-compile-schemas', [schemaDirectory], {
+    cwd: repositoryRoot,
+    stdio: 'inherit',
+});

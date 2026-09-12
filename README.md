@@ -49,3 +49,20 @@ The current skeleton intentionally implements no workspace behavior. Commits
 and pull-request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/); Jira references
 are not used.
+
+## Source layout
+
+```text
+src/
+├── core/          # GNOME-independent domain types
+├── lifecycle/     # cleanup of signals, keybindings, timeouts and actors
+├── logging/       # contextual journal logging
+├── preferences/   # preferences window components
+├── settings/      # typed GSettings access
+├── shell/         # GNOME Shell and Mutter adapters
+├── extension.ts   # runtime composition root
+└── prefs.ts       # preferences composition root
+```
+
+Modules are added only when they own real behavior. Runtime resources must be
+registered with the disposable stack and released from `disable()`.

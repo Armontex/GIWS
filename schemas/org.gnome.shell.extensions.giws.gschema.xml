@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.giws" path="/org/gnome/shell/extensions/giws/">
+    <key name="debug-logging" type="b">
+      <default>false</default>
+      <summary>Enable debug logging</summary>
+      <description>Write diagnostic GIWS messages to the GNOME Shell journal.</description>
+    </key>
+  </schema>
+</schemalist>
