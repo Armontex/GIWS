@@ -10,15 +10,17 @@
   "packageManager": "npm@10.9.8",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "check": "npm run check:static && npm run build && npm run test:run",
+    "check:static": "npm run format:check && npm run lint && npm run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "install:extension": "npm run pack && gnome-extensions install --force giws@armontex.shell-extension.zip",
     "lint": "eslint .",
-    "pack": "npm run build && cd dist && zip -qr ../giws@armontex.shell-extension.zip .",
-    "pretest": "npm run build",
+    "pack": "npm run build && npm run pack:dist",
+    "pack:dist": "cd dist && zip -qr ../giws@armontex.shell-extension.zip .",
     "runtime:smoke": "npm run build && node scripts/runtime-smoke.ts",
-    "test": "vitest run",
+    "test": "npm run build && npm run test:run",
+    "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
