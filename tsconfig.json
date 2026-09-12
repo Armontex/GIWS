@@ -5,6 +5,7 @@
     "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
+    "lib": ["ES2023"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "noFallthroughCasesInSwitch": true,
@@ -13,9 +14,11 @@
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "skipLibCheck": true,
     "strict": true,
     "target": "ES2023",
+    "types": ["node", "vitest/globals"],
     "useUnknownInCatchVariables": true
   },
-  "files": ["ambient.d.ts"]
+  "include": ["ambient.d.ts", "src/**/*.ts", "tests/**/*.ts"]
 }

@@ -9,12 +9,15 @@
   },
   "packageManager": "npm@10.9.8",
   "scripts": {
-    "build": "tsc --noEmit",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "build": "node scripts/build.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "install:extension": "npm run pack && gnome-extensions install --force giws@armontex.shell-extension.zip",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests",
+    "pack": "npm run build && cd dist && zip -qr ../giws@armontex.shell-extension.zip .",
+    "pretest": "npm run build",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
@@ -30,6 +33,9 @@
     "@commitlint/cli": "21.2.2",
     "@commitlint/config-conventional": "21.2.2",
     "@eslint/js": "10.0.1",
+    "@girs/gjs": "4.9.0",
+    "@girs/gnome-shell": "46.0.2",
+    "@types/node": "22.20.2",
     "eslint": "10.10.0",
     "globals": "17.12.0",
     "prettier": "3.9.6",
