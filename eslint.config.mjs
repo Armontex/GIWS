@@ -12,7 +12,7 @@ const typeChecked = [
 
 export default tseslint.config(
     {
-        ignores: ['coverage/**', 'dist/**', 'node_modules/**'],
+        ignores: ['.worktrees/**', 'coverage/**', 'dist/**', 'node_modules/**'],
     },
     {
         ...js.configs.recommended,
