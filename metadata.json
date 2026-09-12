@@ -1,0 +1,7 @@
+{
+  "name": "GIWS",
+  "description": "Independent workspaces per monitor for GNOME Shell",
+  "uuid": "giws@armontex",
+  "url": "https://github.com/Armontex/GIWS",
+  "shell-version": ["46"]
+}
