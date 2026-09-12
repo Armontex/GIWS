@@ -1,0 +1,40 @@
+{
+  "name": "giws",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Independent workspaces per monitor for GNOME Shell",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@10.9.8",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Armontex/GIWS.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Armontex/GIWS/issues"
+  },
+  "homepage": "https://github.com/Armontex/GIWS#readme",
+  "license": "MIT",
+  "devDependencies": {
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
+    "@eslint/js": "10.0.1",
+    "eslint": "10.10.0",
+    "globals": "17.12.0",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.0"
+  }
+}

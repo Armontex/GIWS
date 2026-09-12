@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.zip
+*.log
+.idea/
+.vscode/
+.worktrees/
