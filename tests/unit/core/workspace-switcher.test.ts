@@ -71,7 +71,8 @@ describe('WorkspaceSwitcher', () => {
         expect(apply.mock.calls).toHaveLength(0);
     });
 
-    test('compensates the captured inactive monitor after a delegated native switch', () => {
+    test('compensates the captured inactive monitor before a delegated native switch', () => {
+        const events: string[] = [];
         const state = environment({
             activeMonitor: 0,
             windows: [
@@ -79,13 +80,18 @@ describe('WorkspaceSwitcher', () => {
                 {id: 'secondary', monitor: asMonitorIndex(1), workspace: 0},
             ],
         });
+        state.apply.mockImplementation(() => {
+            events.push('compensate');
+        });
         const switcher = new WorkspaceSwitcher(state.environment);
 
         switcher.switch(SwitchDirection.Next, () => {
+            events.push('native-switch');
             state.setActiveWorkspace(1);
             state.setActiveMonitor(1);
         });
 
+        expect(events).toEqual(['compensate', 'native-switch']);
         expect(state.apply.mock.calls).toEqual([[[{id: 'secondary', workspace: 1}]]]);
     });
 });
