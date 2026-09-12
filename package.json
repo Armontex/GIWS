@@ -35,7 +35,7 @@
     "@eslint/js": "10.0.1",
     "@girs/gjs": "4.9.0",
     "@girs/gnome-shell": "46.0.2",
-    "@types/node": "22.20.2",
+    "@types/node": "26.5.0",
     "eslint": "10.10.0",
     "globals": "17.12.0",
     "prettier": "3.9.6",
