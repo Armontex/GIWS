@@ -36,17 +36,25 @@ describe('extension artifact', () => {
         const extension = readFileSync(builtExtensionPath, 'utf8');
 
         expect(extension).toContain('export default class GiwsExtension');
+        expect(extension).toContain('new WorkspaceSwitcher');
+        expect(extension).toContain('new StockWorkspaceKeybindings');
     });
 
     test('builds the project modules used by the GNOME entry points', () => {
         const modules = [
             'core/monitor.js',
+            'core/workspace-switcher.js',
+            'core/workspaces.js',
             'lifecycle/disposables.js',
             'logging/logger.js',
             'preferences/preferences.js',
             'settings/keys.js',
             'settings/settings.js',
             'shell/active-monitor.js',
+            'shell/keybindings.js',
+            'shell/workspace-configuration.js',
+            'shell/workspace-environment.js',
+            'shell/workspace-windows.js',
         ];
 
         for (const module of modules) {
