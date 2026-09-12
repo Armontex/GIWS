@@ -32,5 +32,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run quality gate
-        run: npm run check
+      - name: Run static checks
+        run: npm run check:static
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Run tests
+        run: npm run test:run
+
+      - name: Package extension
+        run: npm run pack:dist
+
+      - name: Verify extension package
+        run: unzip -t giws@armontex.shell-extension.zip
+
+      - name: Upload extension package
+        uses: actions/upload-artifact@v7
+        with:
+          name: giws-extension
+          path: giws@armontex.shell-extension.zip
+          if-no-files-found: error
