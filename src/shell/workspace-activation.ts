@@ -6,7 +6,7 @@ export interface ActivatableApp<Window extends ActivatableWindow> {
     get_windows(): Window[];
 }
 
-type RunOnMonitor = (monitor: number, activate: () => void) => void;
+export type RunOnMonitor = (monitor: number, activate: () => void) => void;
 
 export class WorkspaceActivationRouter {
     readonly #runOnMonitor: RunOnMonitor;

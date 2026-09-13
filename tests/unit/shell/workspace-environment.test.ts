@@ -15,6 +15,7 @@ describe('GnomeWorkspaceEnvironment', () => {
         const environment = new GnomeWorkspaceEnvironment(
             {
                 get_current_monitor: () => 1,
+                get_n_monitors: () => 2,
                 get_primary_monitor: () => 0,
             },
             {
@@ -29,6 +30,7 @@ describe('GnomeWorkspaceEnvironment', () => {
 
         expect(environment.activeMonitor()).toBe(1);
         expect(environment.primaryMonitor()).toBe(0);
+        expect(environment.monitorCount()).toBe(2);
         expect(environment.activeWorkspace()).toBe(0);
         expect(environment.workspaceCount()).toBe(2);
         expect(environment.windowPlacements()).toEqual([{id: window, monitor: 1, workspace: 0}]);

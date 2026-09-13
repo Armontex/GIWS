@@ -44,6 +44,7 @@ pointer.
 | Interaction               | What happens                                                  |
 | ------------------------- | ------------------------------------------------------------- |
 | Shortcut on any monitor   | Its workspace changes with native GNOME animation and popup.  |
+| Mouse wheel or touchpad   | Only the workspace view where the gesture starts advances.    |
 | Dash or window activation | Only the monitor containing the selected window changes.      |
 | All other monitors        | Their visible windows and workspace context remain untouched. |
 
@@ -53,7 +54,7 @@ model: keep using the GNOME workflow you already know.
 ## How it works
 
 1. GIWS observes GNOME workspace changes from native shortcuts and window
-   activation, including the Dash.
+   activation, including the Dash, mouse wheel and touchpad gestures.
 2. It identifies the target from the pointer for shortcuts or from the window
    being activated.
 3. GNOME performs the transition while GIWS compensates every other monitor
@@ -175,6 +176,7 @@ with isolated D-Bus, dconf and XDG directories. It validates:
 - stock keyboard shortcut dispatch through Mutter;
 - primary and secondary monitor window placement;
 - Dash-style window activation in both directions;
+- monitor-aware mouse-wheel switching inside Overview;
 - native animation and popup targeting;
 - absence of GJS runtime errors during the interaction scenario.
 
