@@ -1,7 +1,10 @@
 import type {WorkspaceSwitchLease} from '../core/workspace-switcher.js';
 
 export interface WorkspaceAnimationMonitor {
+    readonly _container: {x: number; y: number};
+    connect(signal: 'notify::progress', callback: () => void): number;
     destroy: () => void;
+    disconnect(id: number): void;
     readonly index: number;
     opacity: number;
 }
@@ -37,6 +40,7 @@ export interface WorkspaceGestureAnimationController extends WorkspaceAnimationC
 
 export class TargetMonitorAnimationScope {
     readonly #controller: WorkspaceAnimationController;
+    readonly #freezeIds = new WeakMap<WorkspaceAnimationMonitor, number>();
 
     constructor(controller: WorkspaceAnimationController) {
         this.#controller = controller;
@@ -46,13 +50,10 @@ export class TargetMonitorAnimationScope {
         const controller = this.#controller;
         const originalPrepare = controller._prepareWorkspaceSwitch;
 
-        function prepareTargetOnly(
-            this: WorkspaceAnimationController,
-            workspaceIndices?: readonly number[]
-        ): void {
-            originalPrepare.call(this, workspaceIndices);
-            showTargetMonitor(this, targetMonitor);
-        }
+        const prepareTargetOnly = (workspaceIndices?: readonly number[]): void => {
+            originalPrepare.call(controller, workspaceIndices);
+            this.show(targetMonitor);
+        };
 
         controller._prepareWorkspaceSwitch = prepareTargetOnly;
 
@@ -66,7 +67,37 @@ export class TargetMonitorAnimationScope {
     }
 
     show(targetMonitor: number): void {
-        showTargetMonitor(this.#controller, targetMonitor);
+        const switchData = this.#controller._switchData;
+
+        if (!switchData?.monitors.some(monitor => monitor.index === targetMonitor)) {
+            return;
+        }
+
+        for (const monitor of switchData.monitors) {
+            monitor.opacity = 255;
+            const freezeId = this.#freezeIds.get(monitor);
+
+            if (monitor.index === targetMonitor) {
+                if (freezeId !== undefined) {
+                    monitor.disconnect(freezeId);
+                    this.#freezeIds.delete(monitor);
+                }
+                continue;
+            }
+
+            if (freezeId !== undefined) {
+                continue;
+            }
+
+            const {x, y} = monitor._container;
+            this.#freezeIds.set(
+                monitor,
+                monitor.connect('notify::progress', () => {
+                    monitor._container.x = x;
+                    monitor._container.y = y;
+                })
+            );
+        }
     }
 }
 
@@ -134,16 +165,4 @@ export class WorkspaceGestureAnimationRouter {
         this.#gesture?.lease.finish();
         this.#gesture = null;
     }
-}
-
-function showTargetMonitor(controller: WorkspaceAnimationController, targetMonitor: number): void {
-    const switchData = controller._switchData;
-
-    if (!switchData?.monitors.some(monitor => monitor.index === targetMonitor)) {
-        return;
-    }
-
-    switchData.monitors.forEach(monitor => {
-        monitor.opacity = monitor.index === targetMonitor ? 255 : 0;
-    });
 }

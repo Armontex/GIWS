@@ -9,6 +9,8 @@ export const METRICS = {};
 const shellGlobal = global as unknown as Shell.Global;
 
 interface WorkspaceAnimationMonitor {
+    readonly _container: {x: number; y: number};
+    connect(signal: 'notify::progress', callback: () => void): number;
     readonly index: number;
     readonly opacity: number;
     readonly visible: boolean;
@@ -32,6 +34,7 @@ interface SwipeTracker {
 
 interface AnimationSnapshot {
     index: number;
+    moved: boolean;
     visible: boolean;
 }
 
@@ -151,10 +154,33 @@ function popupMonitor(windowManager: WorkspaceWindowManager): number | null {
 function hasAnimation(
     monitors: readonly AnimationSnapshot[] | null,
     index: number,
+    moved: boolean,
     visible: boolean
 ): boolean {
     return (
-        monitors?.some(monitor => monitor.index === index && monitor.visible === visible) ?? false
+        monitors?.some(
+            monitor =>
+                monitor.index === index && monitor.moved === moved && monitor.visible === visible
+        ) ?? false
+    );
+}
+
+function observeAnimations(controller: WorkspaceAnimationController): AnimationSnapshot[] | null {
+    return (
+        controller._switchData?.monitors.map(monitor => {
+            const initialX = monitor._container.x;
+            const initialY = monitor._container.y;
+            const snapshot = {
+                index: monitor.index,
+                moved: false,
+                visible: monitor.visible && monitor.opacity > 0,
+            };
+            monitor.connect('notify::progress', () => {
+                snapshot.moved ||=
+                    monitor._container.x !== initialX || monitor._container.y !== initialY;
+            });
+            return snapshot;
+        }) ?? null
     );
 }
 
@@ -237,11 +263,7 @@ export async function run(): Promise<void> {
         onComplete: () => void
     ): void {
         nativeAnimate.call(this, from, to, direction, onComplete);
-        animationObservation.monitors =
-            this._switchData?.monitors.map(monitor => ({
-                index: monitor.index,
-                visible: monitor.visible && monitor.opacity > 0,
-            })) ?? null;
+        animationObservation.monitors = observeAnimations(this);
     };
 
     try {
@@ -260,9 +282,9 @@ export async function run(): Promise<void> {
     const animatedMonitors = observedAnimations(animationObservation);
     assert(
         animatedMonitors?.length === 2 &&
-            hasAnimation(animatedMonitors, 0, true) &&
-            hasAnimation(animatedMonitors, 1, false),
-        `expected only visible primary monitor animation, got ${JSON.stringify(animatedMonitors)}`
+            hasAnimation(animatedMonitors, 0, true, true) &&
+            hasAnimation(animatedMonitors, 1, false, true),
+        `expected a moving primary and stationary visible secondary monitor, got ${JSON.stringify(animatedMonitors)}`
     );
     assert(popupMonitor(workspaceWindowManager) === 0, 'workspace popup was not on primary');
     assert(workspaceOf(primaryCurrent) === 0, 'primary switch moved current primary window');
@@ -317,11 +339,7 @@ export async function run(): Promise<void> {
         onComplete: () => void
     ): void {
         nativeAnimate.call(this, from, to, direction, onComplete);
-        animationObservation.monitors =
-            this._switchData?.monitors.map(monitor => ({
-                index: monitor.index,
-                visible: monitor.visible && monitor.opacity > 0,
-            })) ?? null;
+        animationObservation.monitors = observeAnimations(this);
     };
 
     try {
@@ -342,9 +360,9 @@ export async function run(): Promise<void> {
     const secondaryAnimation = observedAnimations(animationObservation);
     assert(
         secondaryAnimation?.length === 2 &&
-            hasAnimation(secondaryAnimation, 0, false) &&
-            hasAnimation(secondaryAnimation, 1, true),
-        `expected only visible secondary monitor animation, got ${JSON.stringify(secondaryAnimation)}`
+            hasAnimation(secondaryAnimation, 0, false, true) &&
+            hasAnimation(secondaryAnimation, 1, true, true),
+        `expected a stationary visible primary and moving secondary monitor, got ${JSON.stringify(secondaryAnimation)}`
     );
     assert(popupMonitor(workspaceWindowManager) === 1, 'workspace popup was not on secondary');
 
@@ -358,11 +376,7 @@ export async function run(): Promise<void> {
 
     animationObservation.monitors = null;
     animationController._swipeTracker.emit('begin', 1);
-    animationObservation.monitors =
-        animationController._switchData?.monitors.map(monitor => ({
-            index: monitor.index,
-            visible: monitor.visible && monitor.opacity > 0,
-        })) ?? null;
+    animationObservation.monitors = observeAnimations(animationController);
     animationController._swipeTracker.emit('update', 1);
     animationController._swipeTracker.emit('end', 250, 1);
     pointer.notify_absolute_motion(
@@ -386,9 +400,9 @@ export async function run(): Promise<void> {
     const desktopGestureAnimation = observedAnimations(animationObservation);
     assert(
         desktopGestureAnimation?.length === 2 &&
-            hasAnimation(desktopGestureAnimation, 0, false) &&
-            hasAnimation(desktopGestureAnimation, 1, true),
-        `expected only visible secondary touchpad animation, got ${JSON.stringify(desktopGestureAnimation)}`
+            hasAnimation(desktopGestureAnimation, 0, false, true) &&
+            hasAnimation(desktopGestureAnimation, 1, true, true),
+        `expected a stationary visible primary and moving secondary touchpad animation, got ${JSON.stringify(desktopGestureAnimation)}`
     );
 
     Main.activateWindow(secondaryCurrent);
