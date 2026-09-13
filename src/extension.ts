@@ -11,6 +11,10 @@ import {Logger} from './logging/logger.js';
 import {SETTINGS_SCHEMA} from './settings/keys.js';
 import {GiwsSettings} from './settings/settings.js';
 import {
+    PrimaryMonitorAnimationScope,
+    type WorkspaceAnimationController,
+} from './shell/workspace-animation.js';
+import {
     StockWorkspaceKeybindings,
     type KeybindingRegistry,
     type WorkspaceKeyHandler,
@@ -21,6 +25,7 @@ import type {ShellWindow} from './shell/workspace-windows.js';
 
 interface NativeWorkspaceWindowManager extends KeybindingRegistry {
     _showWorkspaceSwitcher: WorkspaceKeyHandler;
+    _workspaceAnimation: WorkspaceAnimationController;
 }
 
 export default class GiwsExtension extends Extension {
@@ -52,12 +57,28 @@ export default class GiwsExtension extends Extension {
             const nativeHandler: WorkspaceKeyHandler = (display, window, event, binding) => {
                 windowManager._showWorkspaceSwitcher(display, window, event, binding);
             };
+            const primaryAnimation = new PrimaryMonitorAnimationScope(
+                windowManager._workspaceAnimation,
+                () => environment.primaryMonitor()
+            );
             const modes = Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW;
             const keybindings = new StockWorkspaceKeybindings(windowManager, modes, nativeHandler);
 
             keybindings.enable(
-                createHandler(SwitchDirection.Previous, switcher, nativeHandler, logger),
-                createHandler(SwitchDirection.Next, switcher, nativeHandler, logger)
+                createHandler(
+                    SwitchDirection.Previous,
+                    switcher,
+                    nativeHandler,
+                    primaryAnimation,
+                    logger
+                ),
+                createHandler(
+                    SwitchDirection.Next,
+                    switcher,
+                    nativeHandler,
+                    primaryAnimation,
+                    logger
+                )
             );
             resources.defer(() => {
                 keybindings.dispose();
@@ -87,12 +108,15 @@ function createHandler(
     direction: SwitchDirection,
     switcher: WorkspaceSwitcher<ShellWindow>,
     nativeHandler: WorkspaceKeyHandler,
+    primaryAnimation: PrimaryMonitorAnimationScope,
     logger: Logger
 ): WorkspaceKeyHandler {
     return (display, window, event, binding): void => {
         try {
             switcher.switch(direction, () => {
-                nativeHandler(display, window, event, binding);
+                primaryAnimation.run(() => {
+                    nativeHandler(display, window, event, binding);
+                });
             });
         } catch (error) {
             logger.error('workspace switch failed', error);
