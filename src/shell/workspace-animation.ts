@@ -1,6 +1,7 @@
 export interface WorkspaceAnimationMonitor {
     destroy: () => void;
     readonly index: number;
+    opacity: number;
 }
 
 interface WorkspaceAnimationSwitchData {
@@ -15,52 +16,45 @@ export interface WorkspaceAnimationController {
     _switchData: WorkspaceAnimationSwitchData | null;
 }
 
-export class PrimaryMonitorAnimationScope {
+export class TargetMonitorAnimationScope {
     readonly #controller: WorkspaceAnimationController;
-    readonly #primaryMonitor: () => number;
 
-    constructor(controller: WorkspaceAnimationController, primaryMonitor: () => number) {
+    constructor(controller: WorkspaceAnimationController) {
         this.#controller = controller;
-        this.#primaryMonitor = primaryMonitor;
     }
 
-    run(nativeSwitch: () => void): void {
+    run(targetMonitor: number, nativeSwitch: () => void): void {
         const controller = this.#controller;
         const originalPrepare = controller._prepareWorkspaceSwitch;
-        const primaryMonitor = this.#primaryMonitor;
 
-        function preparePrimaryOnly(
+        function prepareTargetOnly(
             this: WorkspaceAnimationController,
             workspaceIndices?: readonly number[]
         ): void {
             originalPrepare.call(this, workspaceIndices);
-
-            const switchData = this._switchData;
-            const primaryIndex = primaryMonitor();
-
-            if (!switchData?.monitors.some(monitor => monitor.index === primaryIndex)) {
-                return;
-            }
-
-            const secondaryMonitors = switchData.monitors.filter(
-                monitor => monitor.index !== primaryIndex
-            );
-            switchData.monitors = switchData.monitors.filter(
-                monitor => monitor.index === primaryIndex
-            );
-            secondaryMonitors.forEach(monitor => {
-                monitor.destroy();
-            });
+            showTargetMonitor(this, targetMonitor);
         }
 
-        controller._prepareWorkspaceSwitch = preparePrimaryOnly;
+        controller._prepareWorkspaceSwitch = prepareTargetOnly;
 
         try {
             nativeSwitch();
         } finally {
-            if (controller._prepareWorkspaceSwitch === preparePrimaryOnly) {
+            if (controller._prepareWorkspaceSwitch === prepareTargetOnly) {
                 controller._prepareWorkspaceSwitch = originalPrepare;
             }
         }
     }
+}
+
+function showTargetMonitor(controller: WorkspaceAnimationController, targetMonitor: number): void {
+    const switchData = controller._switchData;
+
+    if (!switchData?.monitors.some(monitor => monitor.index === targetMonitor)) {
+        return;
+    }
+
+    switchData.monitors.forEach(monitor => {
+        monitor.opacity = monitor.index === targetMonitor ? 255 : 0;
+    });
 }
