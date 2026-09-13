@@ -1,5 +1,7 @@
 import {describe, expect, test, vi} from 'vitest';
 
+import {asMonitorIndex} from '../../../src/core/monitor.js';
+import {WorkspaceSwitcher} from '../../../src/core/workspace-switcher.js';
 import {
     WorkspaceGestureAnimationRouter,
     TargetMonitorAnimationScope,
@@ -8,26 +10,57 @@ import {
 } from '../../../src/shell/workspace-animation.js';
 
 class FakeSwipeTracker {
-    readonly #callbacks = new Map<number, (tracker: FakeSwipeTracker, monitor: number) => void>();
+    readonly #beginCallbacks = new Map<
+        number,
+        (tracker: FakeSwipeTracker, monitor: number) => void
+    >();
+    readonly #endCallbacks = new Map<
+        number,
+        (tracker: FakeSwipeTracker, duration: number, endProgress: number) => void
+    >();
     #nextId = 1;
 
     connect(
-        _signal: string,
+        signal: 'begin',
         callback: (tracker: FakeSwipeTracker, monitor: number) => void
+    ): number;
+    connect(
+        signal: 'end',
+        callback: (tracker: FakeSwipeTracker, duration: number, endProgress: number) => void
+    ): number;
+    connect(
+        signal: 'begin' | 'end',
+        callback:
+            | ((tracker: FakeSwipeTracker, monitor: number) => void)
+            | ((tracker: FakeSwipeTracker, duration: number, endProgress: number) => void)
     ): number {
         const id = this.#nextId;
         this.#nextId += 1;
-        this.#callbacks.set(id, callback);
+        if (signal === 'begin') {
+            this.#beginCallbacks.set(
+                id,
+                callback as (tracker: FakeSwipeTracker, monitor: number) => void
+            );
+        } else {
+            this.#endCallbacks.set(id, callback);
+        }
         return id;
     }
 
     disconnect(id: number): void {
-        this.#callbacks.delete(id);
+        this.#beginCallbacks.delete(id);
+        this.#endCallbacks.delete(id);
     }
 
     begin(monitor: number): void {
-        for (const callback of this.#callbacks.values()) {
+        for (const callback of this.#beginCallbacks.values()) {
             callback(this, monitor);
+        }
+    }
+
+    end(duration: number, endProgress: number): void {
+        for (const callback of this.#endCallbacks.values()) {
+            callback(this, duration, endProgress);
         }
     }
 }
@@ -127,37 +160,75 @@ describe('TargetMonitorAnimationScope', () => {
 });
 
 describe('WorkspaceGestureAnimationRouter', () => {
-    test('keeps the gesture monitor selected until the native animation finishes', () => {
+    test('keeps the gesture monitor selected until delayed workspace activation', () => {
         const primary = monitor(0);
         const secondary = monitor(1);
         const tracker = new FakeSwipeTracker();
-        const finishTarget = vi.fn();
-        const beginTarget = vi.fn(() => finishTarget);
+        let activeWorkspace = 0;
+        const apply = vi.fn();
+        const switcher = new WorkspaceSwitcher({
+            activeMonitor: () => asMonitorIndex(0),
+            activeWorkspace: () => activeWorkspace,
+            apply,
+            monitorCount: () => 2,
+            windowPlacements: () => [
+                {id: 'primary', monitor: asMonitorIndex(0), workspace: 0},
+                {id: 'secondary', monitor: asMonitorIndex(1), workspace: 0},
+            ],
+            workspaceCount: () => 4,
+        });
         const controller = {
             _finishWorkspaceSwitch: vi.fn(),
             _prepareWorkspaceSwitch: vi.fn(),
             _swipeTracker: tracker,
             _switchData: {monitors: [primary, secondary]},
         };
-        const originalFinish = controller._finishWorkspaceSwitch;
         const router = new WorkspaceGestureAnimationRouter(
             controller,
             new TargetMonitorAnimationScope(controller),
-            beginTarget
+            monitorIndex => switcher.beginGestureOn(asMonitorIndex(monitorIndex)),
+            () => activeWorkspace
         );
 
         router.bind();
         tracker.begin(1);
 
-        expect(beginTarget).toHaveBeenCalledWith(1);
         expect(primary.opacity).toBe(0);
         expect(secondary.opacity).toBe(255);
-        expect(finishTarget).not.toHaveBeenCalled();
 
+        tracker.end(250, 1);
         controller._finishWorkspaceSwitch(controller._switchData);
+        activeWorkspace = 1;
+        switcher.workspaceChanged();
+
+        expect(apply.mock.calls).toEqual([[[{id: 'primary', workspace: 1}]]]);
+
+        router.dispose();
+    });
+
+    test('releases the gesture monitor when the swipe returns to its starting workspace', () => {
+        const tracker = new FakeSwipeTracker();
+        const finishTarget = vi.fn();
+        const controller = {
+            _finishWorkspaceSwitch: vi.fn(),
+            _prepareWorkspaceSwitch: vi.fn(),
+            _swipeTracker: tracker,
+            _switchData: {monitors: [monitor(0), monitor(1)]},
+        };
+        const router = new WorkspaceGestureAnimationRouter(
+            controller,
+            new TargetMonitorAnimationScope(controller),
+            () => ({commit: vi.fn(), finish: finishTarget}),
+            () => 0
+        );
+
+        router.bind();
+        tracker.begin(1);
+        tracker.end(250, 0);
+        controller._finishWorkspaceSwitch(controller._switchData);
+
         expect(finishTarget).toHaveBeenCalledOnce();
 
         router.dispose();
-        expect(controller._finishWorkspaceSwitch).toBe(originalFinish);
     });
 });

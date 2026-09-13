@@ -11,11 +11,22 @@ export interface WorkspaceEnvironment<WindowId> {
     workspaceCount(): number;
 }
 
+export interface WorkspaceSwitchLease {
+    commit(workspace: number): void;
+    finish(): void;
+}
+
+interface ExpectedMonitor {
+    destination: number | null;
+    monitor: MonitorIndex;
+    token: symbol;
+}
+
 export class WorkspaceSwitcher<WindowId> {
     readonly #environment: WorkspaceEnvironment<WindowId>;
     readonly workspaces: MonitorWorkspaces;
     #activeWorkspace: number;
-    readonly #expectedMonitors: {monitor: MonitorIndex; token: symbol}[] = [];
+    readonly #expectedMonitors: ExpectedMonitor[] = [];
 
     constructor(environment: WorkspaceEnvironment<WindowId>) {
         this.#environment = environment;
@@ -41,8 +52,7 @@ export class WorkspaceSwitcher<WindowId> {
     }
 
     beginOn(targetMonitor: MonitorIndex): () => void {
-        const token = Symbol('workspace-switch-target');
-        this.#expectedMonitors.push({monitor: targetMonitor, token});
+        const expected = this.#pushExpectedMonitor(targetMonitor);
         let active = true;
 
         return (): void => {
@@ -51,10 +61,30 @@ export class WorkspaceSwitcher<WindowId> {
             }
 
             active = false;
-            const index = this.#expectedMonitors.findIndex(entry => entry.token === token);
-            if (index !== -1) {
-                this.#expectedMonitors.splice(index, 1);
-            }
+            this.#removeExpectedMonitor(expected.token);
+        };
+    }
+
+    beginGestureOn(targetMonitor: MonitorIndex): WorkspaceSwitchLease {
+        const expected = this.#pushExpectedMonitor(targetMonitor);
+        let active = true;
+
+        return {
+            commit: workspace => {
+                if (active) {
+                    expected.destination = workspace;
+                }
+            },
+            finish: () => {
+                if (!active) {
+                    return;
+                }
+
+                active = false;
+                if (expected.destination === null) {
+                    this.#removeExpectedMonitor(expected.token);
+                }
+            },
         };
     }
 
@@ -79,13 +109,20 @@ export class WorkspaceSwitcher<WindowId> {
             return;
         }
 
-        this.#completeTransition(
-            this.#expectedMonitors.at(-1)?.monitor ?? this.#environment.activeMonitor(),
-            this.#environment.windowPlacements(),
-            this.#environment.workspaceCount(),
-            previousWorkspace,
-            activeWorkspace
-        );
+        const expected = this.#findExpectedMonitor(activeWorkspace);
+        try {
+            this.#completeTransition(
+                expected?.monitor ?? this.#environment.activeMonitor(),
+                this.#environment.windowPlacements(),
+                this.#environment.workspaceCount(),
+                previousWorkspace,
+                activeWorkspace
+            );
+        } finally {
+            if (expected !== undefined) {
+                this.#removeExpectedMonitor(expected.token);
+            }
+        }
     }
 
     #completeTransition(
@@ -105,5 +142,28 @@ export class WorkspaceSwitcher<WindowId> {
             )
         );
         this.workspaces.completeSwitch(targetMonitor, previousWorkspace, activeWorkspace);
+    }
+
+    #pushExpectedMonitor(monitor: MonitorIndex): ExpectedMonitor {
+        const expected = {
+            destination: null,
+            monitor,
+            token: Symbol('workspace-switch-target'),
+        };
+        this.#expectedMonitors.push(expected);
+        return expected;
+    }
+
+    #findExpectedMonitor(activeWorkspace: number): ExpectedMonitor | undefined {
+        return this.#expectedMonitors.findLast(expected => {
+            return expected.destination === null || expected.destination === activeWorkspace;
+        });
+    }
+
+    #removeExpectedMonitor(token: symbol): void {
+        const index = this.#expectedMonitors.findIndex(expected => expected.token === token);
+        if (index !== -1) {
+            this.#expectedMonitors.splice(index, 1);
+        }
     }
 }

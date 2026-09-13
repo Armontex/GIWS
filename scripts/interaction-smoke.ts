@@ -348,6 +348,23 @@ export async function run(): Promise<void> {
     );
     assert(popupMonitor(workspaceWindowManager) === 1, 'workspace popup was not on secondary');
 
+    shellMain.overview.show();
+    await waitUntil(() => shellMain.overview.visible, 'overview did not open before desktop swipe');
+    shellMain.overview.hide();
+    await waitUntil(
+        () => !shellMain.overview.visible,
+        'overview did not close before desktop swipe'
+    );
+
+    animationObservation.monitors = null;
+    animationController._swipeTracker.emit('begin', 1);
+    animationObservation.monitors =
+        animationController._switchData?.monitors.map(monitor => ({
+            index: monitor.index,
+            visible: monitor.visible && monitor.opacity > 0,
+        })) ?? null;
+    animationController._swipeTracker.emit('update', 1);
+    animationController._swipeTracker.emit('end', 250, 1);
     pointer.notify_absolute_motion(
         Clutter.get_current_event_time() * 1000,
         primaryMonitor.x + primaryMonitor.width / 2,
@@ -355,7 +372,34 @@ export async function run(): Promise<void> {
     );
     await waitUntil(
         () => shellGlobal.display.get_current_monitor() === 0,
-        'pointer did not return to primary monitor'
+        'focus did not leave the desktop gesture monitor before activation'
+    );
+    await waitUntil(
+        () =>
+            shellGlobal.workspace_manager.get_active_workspace_index() === 1 &&
+            workspaceOf(primaryCurrent) === 1 &&
+            workspaceOf(primaryNext) === 2 &&
+            workspaceOf(secondaryCurrent) === 0 &&
+            workspaceOf(secondaryNext) === 1,
+        'desktop touchpad gesture lost its target after leaving Overview'
+    );
+    const desktopGestureAnimation = observedAnimations(animationObservation);
+    assert(
+        desktopGestureAnimation?.length === 2 &&
+            hasAnimation(desktopGestureAnimation, 0, false) &&
+            hasAnimation(desktopGestureAnimation, 1, true),
+        `expected only visible secondary touchpad animation, got ${JSON.stringify(desktopGestureAnimation)}`
+    );
+
+    Main.activateWindow(secondaryCurrent);
+    await waitUntil(
+        () =>
+            shellGlobal.workspace_manager.get_active_workspace_index() === 0 &&
+            workspaceOf(primaryCurrent) === 0 &&
+            workspaceOf(primaryNext) === 1 &&
+            workspaceOf(secondaryCurrent) === 0 &&
+            workspaceOf(secondaryNext) === 1,
+        'desktop touchpad scenario did not restore its initial placement'
     );
 
     shellMain.overview.show();
@@ -407,7 +451,16 @@ export async function run(): Promise<void> {
         'secondary gesture did not advance'
     );
 
-    overviewDisplay._swipeTracker.emit('end', 0, 2);
+    overviewDisplay._swipeTracker.emit('end', 250, 2);
+    pointer.notify_absolute_motion(
+        Clutter.get_current_event_time() * 1000,
+        primaryMonitor.x + primaryMonitor.width / 2,
+        primaryMonitor.y + primaryMonitor.height / 2
+    );
+    await waitUntil(
+        () => shellGlobal.display.get_current_monitor() === 0,
+        'focus did not leave the Overview gesture monitor before activation'
+    );
     await waitUntil(
         () =>
             shellGlobal.workspace_manager.get_active_workspace_index() === 2 &&
@@ -420,42 +473,6 @@ export async function run(): Promise<void> {
 
     shellMain.overview.hide();
     await waitUntil(() => !shellMain.overview.visible, 'overview did not close');
-
-    pointer.notify_absolute_motion(
-        Clutter.get_current_event_time() * 1000,
-        secondaryMonitor.x + secondaryMonitor.width / 2,
-        secondaryMonitor.y + secondaryMonitor.height / 2
-    );
-    await waitUntil(
-        () => shellGlobal.display.get_current_monitor() === 1,
-        'pointer did not select secondary monitor for desktop touchpad gesture'
-    );
-
-    animationObservation.monitors = null;
-    animationController._swipeTracker.emit('begin', 1);
-    animationObservation.monitors =
-        animationController._switchData?.monitors.map(monitor => ({
-            index: monitor.index,
-            visible: monitor.visible && monitor.opacity > 0,
-        })) ?? null;
-    animationController._swipeTracker.emit('update', 1);
-    animationController._swipeTracker.emit('end', 0, 1);
-    await waitUntil(
-        () =>
-            shellGlobal.workspace_manager.get_active_workspace_index() === 1 &&
-            workspaceOf(primaryCurrent) === 0 &&
-            workspaceOf(primaryNext) === 1 &&
-            workspaceOf(secondaryCurrent) === 1 &&
-            workspaceOf(secondaryNext) === 2,
-        'secondary desktop touchpad gesture did not preserve the primary monitor'
-    );
-    const desktopGestureAnimation = observedAnimations(animationObservation);
-    assert(
-        desktopGestureAnimation?.length === 2 &&
-            hasAnimation(desktopGestureAnimation, 0, false) &&
-            hasAnimation(desktopGestureAnimation, 1, true),
-        `expected only visible secondary touchpad animation, got ${JSON.stringify(desktopGestureAnimation)}`
-    );
 
     await Scripting.waitLeisure();
     await Scripting.destroyTestWindows();

@@ -2,6 +2,7 @@ import {describe, expect, test, vi} from 'vitest';
 
 import {asMonitorIndex} from '../../../src/core/monitor.js';
 import {MonitorWorkspaces} from '../../../src/core/monitor-workspaces.js';
+import {WorkspaceSwitcher} from '../../../src/core/workspace-switcher.js';
 import {
     OverviewWorkspaceAdapter,
     type OverviewAdjustment,
@@ -69,26 +70,57 @@ class FakeAdjustment implements OverviewAdjustment {
 }
 
 class FakeSwipeTracker {
-    readonly #callbacks = new Map<number, (tracker: FakeSwipeTracker, monitor: number) => void>();
+    readonly #beginCallbacks = new Map<
+        number,
+        (tracker: FakeSwipeTracker, monitor: number) => void
+    >();
+    readonly #endCallbacks = new Map<
+        number,
+        (tracker: FakeSwipeTracker, duration: number, endProgress: number) => void
+    >();
     #nextId = 1;
 
     connect(
-        _signal: string,
+        signal: 'begin',
         callback: (tracker: FakeSwipeTracker, monitor: number) => void
+    ): number;
+    connect(
+        signal: 'end',
+        callback: (tracker: FakeSwipeTracker, duration: number, endProgress: number) => void
+    ): number;
+    connect(
+        signal: 'begin' | 'end',
+        callback:
+            | ((tracker: FakeSwipeTracker, monitor: number) => void)
+            | ((tracker: FakeSwipeTracker, duration: number, endProgress: number) => void)
     ): number {
         const id = this.#nextId;
         this.#nextId += 1;
-        this.#callbacks.set(id, callback);
+        if (signal === 'begin') {
+            this.#beginCallbacks.set(
+                id,
+                callback as (tracker: FakeSwipeTracker, monitor: number) => void
+            );
+        } else {
+            this.#endCallbacks.set(id, callback);
+        }
         return id;
     }
 
     disconnect(id: number): void {
-        this.#callbacks.delete(id);
+        this.#beginCallbacks.delete(id);
+        this.#endCallbacks.delete(id);
     }
 
     begin(monitor: number): void {
-        for (const callback of this.#callbacks.values()) {
+        for (const callback of this.#beginCallbacks.values()) {
             callback(this, monitor);
+        }
+    }
+
+    end(duration: number, endProgress: number): void {
+        for (const callback of this.#endCallbacks.values()) {
+            callback(this, duration, endProgress);
         }
     }
 }
@@ -232,7 +264,7 @@ describe('OverviewWorkspaceAdapter', () => {
         const primaryThumbnails = thumbnails(shared);
         const secondaryThumbnails = thumbnails(shared);
         const finishTarget = vi.fn();
-        const beginTarget = vi.fn(() => finishTarget);
+        const beginTarget = vi.fn(() => ({commit: vi.fn(), finish: finishTarget}));
         const adapter = new OverviewWorkspaceAdapter(
             new MonitorWorkspaces(2, 4),
             () => 0,
@@ -267,5 +299,52 @@ describe('OverviewWorkspaceAdapter', () => {
         overview._endTouchGesture();
         expect(finishTarget).toHaveBeenCalledOnce();
         expect(secondaryView._scrollAdjustment).toBe(shared);
+    });
+
+    test('keeps the Overview gesture target through delayed workspace activation', () => {
+        const shared = new FakeAdjustment(0);
+        const tracker = new FakeSwipeTracker();
+        const primaryView = view(0, shared);
+        const secondaryView = view(1, shared);
+        let activeWorkspace = 0;
+        const apply = vi.fn();
+        const switcher = new WorkspaceSwitcher({
+            activeMonitor: () => asMonitorIndex(0),
+            activeWorkspace: () => activeWorkspace,
+            apply,
+            monitorCount: () => 2,
+            windowPlacements: () => [
+                {id: 'primary', monitor: asMonitorIndex(0), workspace: 0},
+                {id: 'secondary', monitor: asMonitorIndex(1), workspace: 0},
+            ],
+            workspaceCount: () => 4,
+        });
+        const overview = display(
+            shared,
+            [
+                primaryView,
+                {
+                    _monitorIndex: 1,
+                    _thumbnails: thumbnails(shared),
+                    _workspacesView: secondaryView,
+                },
+            ],
+            tracker
+        );
+        const adapter = new OverviewWorkspaceAdapter(
+            switcher.workspaces,
+            () => activeWorkspace,
+            value => new FakeAdjustment(value),
+            monitor => switcher.beginGestureOn(asMonitorIndex(monitor))
+        );
+
+        adapter.bind(overview, thumbnails(shared));
+        tracker.begin(1);
+        tracker.end(250, 1);
+        overview._endTouchGesture();
+        activeWorkspace = 1;
+        switcher.workspaceChanged();
+
+        expect(apply.mock.calls).toEqual([[[{id: 'primary', workspace: 1}]]]);
     });
 });
