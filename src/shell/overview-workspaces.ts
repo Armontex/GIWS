@@ -31,8 +31,17 @@ export interface OverviewSwipeTracker {
 
 interface OverviewWorkspaceActor {
     readonly metaWorkspace: {index(): number};
+    readonly _windows?: OverviewWindowPreview[];
     show(): void;
     visible: boolean;
+}
+
+interface OverviewWindowPreview {
+    get_transition(name: string): object | null;
+    remove_transition(name: string): void;
+    scale_x: number;
+    scale_y: number;
+    set_pivot_point(x: number, y: number): void;
 }
 
 export interface OverviewWorkspaceView {
@@ -173,6 +182,7 @@ export class OverviewWorkspaceAdapter {
     sync(animate = true): void {
         for (const binding of this.#bindings) {
             this.#order(binding);
+            this.#settleWindowPreviewScale(binding);
             const active = this.#logicalActive(binding.monitor);
 
             if (animate && Math.abs(binding.adjustment.value - active) > POSITION_EPSILON) {
@@ -466,6 +476,28 @@ export class OverviewWorkspaceAdapter {
         }
 
         thumbnails.queue_relayout();
+    }
+
+    #settleWindowPreviewScale(binding: MonitorBinding): void {
+        for (const workspace of binding.view._workspaces) {
+            for (const preview of workspace._windows ?? []) {
+                const scaleX = preview.get_transition('scale-x');
+                const scaleY = preview.get_transition('scale-y');
+                if (scaleX === null && scaleY === null) {
+                    continue;
+                }
+
+                if (scaleX !== null) {
+                    preview.remove_transition('scale-x');
+                }
+                if (scaleY !== null) {
+                    preview.remove_transition('scale-y');
+                }
+                preview.scale_x = 1;
+                preview.scale_y = 1;
+                preview.set_pivot_point(0, 0);
+            }
+        }
     }
 
     #order(binding: MonitorBinding): void {
