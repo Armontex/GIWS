@@ -8,6 +8,36 @@ import * as Scripting from 'resource:///org/gnome/shell/ui/scripting.js';
 export const METRICS = {};
 const shellGlobal = global as unknown as Shell.Global;
 
+interface WorkspaceAnimationMonitor {
+    readonly index: number;
+}
+
+interface WorkspaceAnimationController {
+    _switchData: {monitors: WorkspaceAnimationMonitor[]} | null;
+    animateSwitch: (
+        this: WorkspaceAnimationController,
+        from: number,
+        to: number,
+        direction: Meta.MotionDirection,
+        onComplete: () => void
+    ) => void;
+}
+
+interface OverviewFacade {
+    hide: () => void;
+    readonly visible: boolean;
+}
+
+interface WorkspaceWindowManager {
+    _shouldAnimate: () => boolean;
+    _workspaceAnimation: WorkspaceAnimationController;
+}
+
+interface ShellMainFacade {
+    readonly overview: OverviewFacade;
+    readonly wm: WorkspaceWindowManager;
+}
+
 function assert(condition: unknown, message: string): asserts condition {
     if (!condition) {
         throw new Error(message);
@@ -123,13 +153,48 @@ export async function run(): Promise<void> {
         'pointer did not select primary monitor'
     );
 
-    sendWorkspaceRight(keyboard);
+    const shellMain = Main as unknown as ShellMainFacade;
+    shellMain.overview.hide();
     await waitUntil(
-        () =>
-            shellGlobal.workspace_manager.get_active_workspace_index() === 1 &&
-            workspaceOf(secondaryCurrent) === 0 &&
-            workspaceOf(secondaryNext) === 1,
-        'primary switch did not compensate secondary windows'
+        () => !shellMain.overview.visible,
+        'overview did not hide before primary switch'
+    );
+
+    const workspaceWindowManager = shellMain.wm;
+    assert(workspaceWindowManager._shouldAnimate(), 'workspace animation is disabled');
+
+    const animationController = workspaceWindowManager._workspaceAnimation;
+    const nativeAnimate = animationController.animateSwitch;
+    const animationObservation: {monitors: number[] | null} = {monitors: null};
+
+    animationController.animateSwitch = function (
+        from: number,
+        to: number,
+        direction: Meta.MotionDirection,
+        onComplete: () => void
+    ): void {
+        nativeAnimate.call(this, from, to, direction, onComplete);
+        animationObservation.monitors =
+            this._switchData?.monitors.map(monitor => monitor.index) ?? null;
+    };
+
+    try {
+        sendWorkspaceRight(keyboard);
+        await waitUntil(
+            () =>
+                shellGlobal.workspace_manager.get_active_workspace_index() === 1 &&
+                workspaceOf(secondaryCurrent) === 0 &&
+                workspaceOf(secondaryNext) === 1,
+            'primary switch did not compensate secondary windows'
+        );
+    } finally {
+        animationController.animateSwitch = nativeAnimate;
+    }
+
+    const animatedMonitors = animationObservation.monitors;
+    assert(
+        animatedMonitors?.length === 1 && animatedMonitors[0] === 0,
+        `expected only primary monitor animation, got ${animatedMonitors?.join(',') ?? 'none'}`
     );
     assert(workspaceOf(primary) === 0, 'primary switch moved primary window');
 
