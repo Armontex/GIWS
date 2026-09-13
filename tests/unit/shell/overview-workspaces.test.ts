@@ -259,6 +259,40 @@ describe('OverviewWorkspaceAdapter', () => {
         expect(localAdjustment?.easeCalls).toBe(1);
     });
 
+    test('settles window preview scale transitions after workspace compensation', () => {
+        const shared = new FakeAdjustment(0);
+        const primaryView = view(0, shared);
+        const primaryThumbnails = thumbnails(shared);
+        const preview = {
+            get_transition: vi.fn(() => ({})),
+            remove_transition: vi.fn(),
+            scale_x: 0,
+            scale_y: 0,
+            set_pivot_point: vi.fn(),
+        };
+        const model = new MonitorWorkspaces(1, 4);
+        let activeWorkspace = 0;
+        const adapter = new OverviewWorkspaceAdapter(
+            model,
+            () => activeWorkspace,
+            value => new FakeAdjustment(value)
+        );
+
+        adapter.bind(display(shared, [primaryView]), primaryThumbnails);
+        const compensatedWorkspace = primaryView._workspaces.at(1);
+        if (compensatedWorkspace === undefined) {
+            throw new Error('Missing compensated workspace fixture');
+        }
+        Object.assign(compensatedWorkspace, {_windows: [preview]});
+        activeWorkspace = 1;
+        model.completeSwitch(asMonitorIndex(0), 0, 1);
+        adapter.sync();
+
+        expect(preview.remove_transition.mock.calls).toEqual([['scale-x'], ['scale-y']]);
+        expect([preview.scale_x, preview.scale_y]).toEqual([1, 1]);
+        expect(preview.set_pivot_point).toHaveBeenCalledWith(0, 0);
+    });
+
     test('restores native adjustments and physical ordering when unbound', () => {
         const shared = new FakeAdjustment(0);
         const primaryView = view(0, shared);
