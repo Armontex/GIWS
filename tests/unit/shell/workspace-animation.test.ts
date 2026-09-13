@@ -65,16 +65,46 @@ class FakeSwipeTracker {
     }
 }
 
-function monitor(index: number): WorkspaceAnimationMonitor {
+interface FakeWorkspaceAnimationMonitor extends WorkspaceAnimationMonitor {
+    readonly _container: {x: number; y: number};
+    progress: number;
+}
+
+function monitor(index: number): FakeWorkspaceAnimationMonitor {
+    const callbacks = new Map<number, () => void>();
+    const container = {x: 0, y: 0};
+    let nextId = 1;
+    let progress = 0;
+
     return {
+        _container: container,
+        connect(_signal: 'notify::progress', callback: () => void): number {
+            const id = nextId;
+            nextId += 1;
+            callbacks.set(id, callback);
+            return id;
+        },
+        disconnect(id: number): void {
+            callbacks.delete(id);
+        },
         destroy: vi.fn(),
         index,
         opacity: 255,
+        get progress(): number {
+            return progress;
+        },
+        set progress(value: number) {
+            progress = value;
+            container.y = -value * 100;
+            callbacks.forEach(callback => {
+                callback();
+            });
+        },
     };
 }
 
 describe('TargetMonitorAnimationScope', () => {
-    test('makes only the requested monitor visible in the native workspace animation', () => {
+    test('keeps inactive monitors visible and stationary during the native animation', () => {
         const primary = monitor(0);
         const secondary = monitor(1);
         const tertiary = monitor(2);
@@ -90,11 +120,17 @@ describe('TargetMonitorAnimationScope', () => {
         scope.run(1, () => {
             controller._prepareWorkspaceSwitch([0, 1]);
         });
+        primary.progress = 1;
+        secondary.progress = 1;
+        tertiary.progress = 1;
 
         expect(controller._switchData?.monitors).toEqual([primary, secondary, tertiary]);
-        expect(primary.opacity).toBe(0);
+        expect(primary.opacity).toBe(255);
         expect(secondary.opacity).toBe(255);
-        expect(tertiary.opacity).toBe(0);
+        expect(tertiary.opacity).toBe(255);
+        expect(primary._container.y).toBe(0);
+        expect(secondary._container.y).toBe(-100);
+        expect(tertiary._container.y).toBe(0);
         expect(primary.destroy).not.toHaveBeenCalled();
         expect(secondary.destroy).not.toHaveBeenCalled();
         expect(tertiary.destroy).not.toHaveBeenCalled();
@@ -118,10 +154,14 @@ describe('TargetMonitorAnimationScope', () => {
         scope.run(0, () => {
             controller._prepareWorkspaceSwitch([1, 0]);
         });
+        primary.progress = 1;
+        secondary.progress = 1;
 
         expect(controller._switchData?.monitors).toEqual([primary, secondary]);
         expect(primary.opacity).toBe(255);
-        expect(secondary.opacity).toBe(0);
+        expect(secondary.opacity).toBe(255);
+        expect(primary._container.y).toBe(-100);
+        expect(secondary._container.y).toBe(0);
         expect(primary.destroy).not.toHaveBeenCalled();
         expect(secondary.destroy).not.toHaveBeenCalled();
     });
@@ -136,9 +176,13 @@ describe('TargetMonitorAnimationScope', () => {
         const scope = new TargetMonitorAnimationScope(controller);
 
         scope.show(1);
+        primary.progress = 1;
+        secondary.progress = 1;
 
-        expect(primary.opacity).toBe(0);
+        expect(primary.opacity).toBe(255);
         expect(secondary.opacity).toBe(255);
+        expect(primary._container.y).toBe(0);
+        expect(secondary._container.y).toBe(-100);
     });
 
     test('restores the native animation hook when switching throws', () => {
@@ -193,7 +237,7 @@ describe('WorkspaceGestureAnimationRouter', () => {
         router.bind();
         tracker.begin(1);
 
-        expect(primary.opacity).toBe(0);
+        expect(primary.opacity).toBe(255);
         expect(secondary.opacity).toBe(255);
 
         tracker.end(250, 1);
