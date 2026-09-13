@@ -1,5 +1,8 @@
+import type Clutter from 'gi://Clutter';
 import Meta from 'gi://Meta';
+import Mtk from 'gi://Mtk';
 import Shell from 'gi://Shell';
+import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as ExtensionModule from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -13,7 +16,8 @@ import {SETTINGS_SCHEMA} from './settings/keys.js';
 import {GiwsSettings} from './settings/settings.js';
 import {
     TargetMonitorAnimationScope,
-    type WorkspaceAnimationController,
+    WorkspaceGestureAnimationRouter,
+    type WorkspaceGestureAnimationController,
 } from './shell/workspace-animation.js';
 import {
     StockWorkspaceKeybindings,
@@ -22,14 +26,33 @@ import {
 } from './shell/keybindings.js';
 import {assertWorkspaceConfiguration} from './shell/workspace-configuration.js';
 import {GnomeWorkspaceEnvironment} from './shell/workspace-environment.js';
+import {
+    OverviewWorkspaceAdapter,
+    type OverviewAdjustment,
+    type OverviewThumbnailBox,
+    type OverviewWorkspacesDisplay,
+} from './shell/overview-workspaces.js';
 import {retargetWorkspacePopup, type WorkspacePopup} from './shell/workspace-popup.js';
 import type {ShellWindow} from './shell/workspace-windows.js';
-import {WorkspaceActivationRouter} from './shell/workspace-activation.js';
+import {WorkspaceActivationRouter, type RunOnMonitor} from './shell/workspace-activation.js';
 
 interface NativeWorkspaceWindowManager extends KeybindingRegistry {
     _showWorkspaceSwitcher: WorkspaceKeyHandler;
-    _workspaceAnimation: WorkspaceAnimationController;
+    _workspaceAnimation: WorkspaceGestureAnimationController;
     _workspaceSwitcherPopup: WorkspacePopup | null;
+    handleWorkspaceScroll(event: Clutter.Event): boolean;
+}
+
+interface NativeOverview {
+    readonly _overview: {
+        readonly controls: {
+            readonly _thumbnailsBox: OverviewThumbnailBox;
+            readonly _workspacesDisplay: OverviewWorkspacesDisplay;
+        };
+    };
+    readonly visible: boolean;
+    connect(signal: 'hiding' | 'showing', callback: () => void): number;
+    disconnect(id: number): void;
 }
 
 interface MethodInjectionManager {
@@ -55,6 +78,7 @@ type WorkspaceActivateWithFocus = (
     window: Meta.Window | null,
     timestamp: number
 ) => void;
+type HandleWorkspaceScroll = (this: NativeWorkspaceWindowManager, event: Clutter.Event) => boolean;
 
 export default class GiwsExtension extends Extension {
     #resources: DisposableStack | null = null;
@@ -86,23 +110,110 @@ export default class GiwsExtension extends Extension {
             };
             const animation = new TargetMonitorAnimationScope(windowManager._workspaceAnimation);
             const switcher = new WorkspaceSwitcher(environment);
+            const gestureAnimation = new WorkspaceGestureAnimationRouter(
+                windowManager._workspaceAnimation,
+                animation,
+                monitor => switcher.beginOn(asMonitorIndex(monitor))
+            );
+            gestureAnimation.bind();
+            resources.defer(() => {
+                gestureAnimation.dispose();
+            });
+            const runOnMonitor: RunOnMonitor = (monitor, action) => {
+                switcher.switchOn(asMonitorIndex(monitor), () => {
+                    animation.run(monitor, action);
+                });
+            };
+            const overview = Main.overview as unknown as NativeOverview;
+            const overviewAdapter = new OverviewWorkspaceAdapter(
+                switcher.workspaces,
+                () => environment.activeWorkspace(),
+                (value, source, actor) => {
+                    return new St.Adjustment({
+                        actor: actor as unknown as Clutter.Actor,
+                        lower: source.lower,
+                        page_increment: source.page_increment,
+                        page_size: source.page_size,
+                        step_increment: source.step_increment,
+                        upper: source.upper,
+                        value,
+                    }) as unknown as OverviewAdjustment;
+                },
+                monitor => switcher.beginOn(asMonitorIndex(monitor))
+            );
             const workspaceManager = shellGlobal.workspace_manager;
+            const bindOverview = (): void => {
+                switcher.refresh();
+                const controls = overview._overview.controls;
+                overviewAdapter.bind(controls._workspacesDisplay, controls._thumbnailsBox);
+            };
+            const rebuildOverview = (rebuildPrimaryThumbnails: boolean): void => {
+                const controls = overview._overview.controls;
+
+                overviewAdapter.dispose();
+                if (rebuildPrimaryThumbnails) {
+                    controls._thumbnailsBox._destroyThumbnails();
+                    controls._thumbnailsBox._createThumbnails();
+                }
+
+                controls._workspacesDisplay._updateWorkspacesViews();
+                for (const entry of controls._workspacesDisplay._workspacesViews) {
+                    if ('_thumbnails' in entry) {
+                        entry._thumbnails._createThumbnails();
+                    }
+                }
+
+                bindOverview();
+            };
             const workspaceChangedId = workspaceManager.connect('active-workspace-changed', () => {
                 switcher.workspaceChanged();
+                overviewAdapter.sync();
             });
             resources.defer(() => {
                 workspaceManager.disconnect(workspaceChangedId);
             });
-            const activationRouter = new WorkspaceActivationRouter((monitor, activate) => {
-                switcher.switchOn(asMonitorIndex(monitor), () => {
-                    animation.run(monitor, activate);
-                });
-            });
+            const activationRouter = new WorkspaceActivationRouter(runOnMonitor);
             const injections = new InjectionManager();
             resources.defer(() => {
                 injections.clear();
             });
-            installActivationOverrides(injections, activationRouter);
+            installShellOverrides(
+                injections,
+                activationRouter,
+                windowManager,
+                shellGlobal.display,
+                runOnMonitor
+            );
+            const overviewShowingId = overview.connect('showing', () => {
+                bindOverview();
+            });
+            const overviewHidingId = overview.connect('hiding', () => {
+                overviewAdapter.unbind();
+            });
+            resources.defer(() => {
+                overviewAdapter.dispose();
+                overview.disconnect(overviewShowingId);
+                overview.disconnect(overviewHidingId);
+            });
+            const monitorsChangedId = Main.layoutManager.connect('monitors-changed', () => {
+                switcher.reset();
+                if (overview.visible) {
+                    rebuildOverview(false);
+                }
+            });
+            const workspaceCountChangedId = workspaceManager.connect('notify::n-workspaces', () => {
+                switcher.refresh();
+                if (overview.visible) {
+                    rebuildOverview(true);
+                }
+            });
+            resources.defer(() => {
+                Main.layoutManager.disconnect(monitorsChangedId);
+                workspaceManager.disconnect(workspaceCountChangedId);
+            });
+            if (overview.visible) {
+                bindOverview();
+            }
             const modes = Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW;
             const keybindings = new StockWorkspaceKeybindings(windowManager, modes, nativeHandler);
 
@@ -139,9 +250,12 @@ export default class GiwsExtension extends Extension {
     }
 }
 
-function installActivationOverrides(
+function installShellOverrides(
     injections: MethodInjectionManager,
-    router: WorkspaceActivationRouter
+    router: WorkspaceActivationRouter,
+    windowManager: NativeWorkspaceWindowManager,
+    display: Meta.Display,
+    runOnMonitor: RunOnMonitor
 ): void {
     injections.overrideMethod<AppActivate>(Shell.App.prototype, 'activate', originalActivate => {
         return function (this: Shell.App): void {
@@ -184,6 +298,23 @@ function installActivationOverrides(
                 router.activateWindow(window, () => {
                     originalActivate.call(this, window, timestamp);
                 });
+            };
+        }
+    );
+    injections.overrideMethod<HandleWorkspaceScroll>(
+        Object.getPrototypeOf(windowManager) as object,
+        'handleWorkspaceScroll',
+        originalHandle => {
+            return function (this: NativeWorkspaceWindowManager, event: Clutter.Event): boolean {
+                const [x, y] = event.get_coords();
+                const monitor = display.get_monitor_index_for_rect(
+                    new Mtk.Rectangle({x: Math.floor(x), y: Math.floor(y), width: 1, height: 1})
+                );
+                let result = false;
+                runOnMonitor(monitor, () => {
+                    result = originalHandle.call(this, event);
+                });
+                return result;
             };
         }
     );
