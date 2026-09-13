@@ -52,8 +52,11 @@ describe('extension artifact', () => {
             'settings/settings.js',
             'shell/active-monitor.js',
             'shell/keybindings.js',
+            'shell/workspace-activation.js',
+            'shell/workspace-animation.js',
             'shell/workspace-configuration.js',
             'shell/workspace-environment.js',
+            'shell/workspace-popup.js',
             'shell/workspace-windows.js',
         ];
 

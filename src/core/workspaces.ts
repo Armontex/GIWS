@@ -1,10 +1,5 @@
 import type {MonitorIndex} from './monitor.js';
 
-export enum SwitchDirection {
-    Previous = -1,
-    Next = 1,
-}
-
 export interface WindowPlacement<WindowId> {
     id: WindowId;
     monitor: MonitorIndex;
@@ -14,22 +9,6 @@ export interface WindowPlacement<WindowId> {
 export interface WindowMove<WindowId> {
     id: WindowId;
     workspace: number;
-}
-
-export function planMonitorSwitch<WindowId>(
-    windows: readonly WindowPlacement<WindowId>[],
-    monitor: MonitorIndex,
-    workspaceCount: number,
-    direction: SwitchDirection
-): WindowMove<WindowId>[] {
-    const shift = -direction;
-
-    return windows
-        .filter(window => window.monitor === monitor)
-        .map(({id, workspace}) => ({
-            id,
-            workspace: wrapWorkspace(workspace + shift, workspaceCount),
-        }));
 }
 
 export function planGlobalSwitchCompensation<WindowId>(
