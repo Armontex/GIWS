@@ -12,6 +12,7 @@ import {
 } from '../../../src/shell/overview-workspaces.js';
 
 class FakeAdjustment implements OverviewAdjustment {
+    completeEaseImmediately = true;
     easeCalls = 0;
     lower = 0;
     page_increment = 1;
@@ -54,6 +55,10 @@ class FakeAdjustment implements OverviewAdjustment {
 
     ease(value: number, options: {onComplete?: () => void}): void {
         this.easeCalls += 1;
+        if (!this.completeEaseImmediately) {
+            return;
+        }
+
         this.setValue(value);
         options.onComplete?.();
     }
@@ -225,6 +230,33 @@ describe('OverviewWorkspaceAdapter', () => {
         expect(secondaryThumbnails._thumbnails.map(actor => actor.metaWorkspace.index())).toEqual([
             1, 2, 3, 0,
         ]);
+    });
+
+    test('does not restart an in-flight transition to the same workspace', () => {
+        const shared = new FakeAdjustment(0);
+        const primaryView = view(0, shared);
+        const primaryThumbnails = thumbnails(shared);
+        const model = new MonitorWorkspaces(1, 4);
+        let activeWorkspace = 0;
+        let localAdjustment: FakeAdjustment | undefined;
+        const adapter = new OverviewWorkspaceAdapter(
+            model,
+            () => activeWorkspace,
+            value => {
+                localAdjustment = new FakeAdjustment(value);
+                localAdjustment.completeEaseImmediately = false;
+                return localAdjustment;
+            }
+        );
+
+        adapter.bind(display(shared, [primaryView]), primaryThumbnails);
+        activeWorkspace = 1;
+        model.completeSwitch(asMonitorIndex(0), 0, 1);
+
+        adapter.sync();
+        primaryView._scrollToActive();
+
+        expect(localAdjustment?.easeCalls).toBe(1);
     });
 
     test('restores native adjustments and physical ordering when unbound', () => {
