@@ -18,9 +18,13 @@ function environment(
     environment: WorkspaceEnvironment<string>;
     setActiveMonitor(index: number): void;
     setActiveWorkspace(index: number): void;
+    setMonitorCount(count: number): void;
+    setWorkspaceCount(count: number): void;
 } {
     let activeMonitor = options.activeMonitor ?? 1;
     let activeWorkspace = options.activeWorkspace ?? 0;
+    let monitorCount = 3;
+    let workspaceCount = 4;
     const apply = vi.fn();
 
     return {
@@ -29,14 +33,21 @@ function environment(
             activeMonitor: () => asMonitorIndex(activeMonitor),
             activeWorkspace: () => activeWorkspace,
             apply,
+            monitorCount: () => monitorCount,
             windowPlacements: () => options.windows ?? [],
-            workspaceCount: () => 4,
+            workspaceCount: () => workspaceCount,
         },
         setActiveMonitor(index): void {
             activeMonitor = index;
         },
         setActiveWorkspace(index): void {
             activeWorkspace = index;
+        },
+        setMonitorCount(count): void {
+            monitorCount = count;
+        },
+        setWorkspaceCount(count): void {
+            workspaceCount = count;
         },
     };
 }
@@ -137,5 +148,34 @@ describe('WorkspaceSwitcher', () => {
                 ],
             ],
         ]);
+    });
+
+    test('keeps the target monitor until an asynchronous gesture finishes', () => {
+        const state = environment({
+            activeMonitor: 0,
+            windows: [
+                {id: 'primary', monitor: asMonitorIndex(0), workspace: 0},
+                {id: 'secondary', monitor: asMonitorIndex(1), workspace: 0},
+            ],
+        });
+        const switcher = new WorkspaceSwitcher(state.environment);
+
+        const finishGesture = switcher.beginOn(asMonitorIndex(1));
+        state.setActiveWorkspace(1);
+        switcher.workspaceChanged();
+        finishGesture();
+
+        expect(state.apply.mock.calls).toEqual([[[{id: 'primary', workspace: 1}]]]);
+    });
+
+    test('refreshes logical workspace dimensions after monitor changes', () => {
+        const state = environment();
+        const switcher = new WorkspaceSwitcher(state.environment);
+
+        state.setMonitorCount(4);
+        state.setWorkspaceCount(2);
+        switcher.refresh();
+
+        expect(switcher.workspaces.active(asMonitorIndex(3), 0)).toBe(0);
     });
 });

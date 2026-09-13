@@ -43,6 +43,7 @@ describe('extension artifact', () => {
     test('builds the project modules used by the GNOME entry points', () => {
         const modules = [
             'core/monitor.js',
+            'core/monitor-workspaces.js',
             'core/workspace-switcher.js',
             'core/workspaces.js',
             'lifecycle/disposables.js',
@@ -52,6 +53,7 @@ describe('extension artifact', () => {
             'settings/settings.js',
             'shell/active-monitor.js',
             'shell/keybindings.js',
+            'shell/overview-workspaces.js',
             'shell/workspace-activation.js',
             'shell/workspace-animation.js',
             'shell/workspace-configuration.js',

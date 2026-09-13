@@ -1,22 +1,29 @@
 import type {MonitorIndex} from './monitor.js';
+import {MonitorWorkspaces} from './monitor-workspaces.js';
 import {type WindowMove, type WindowPlacement, planGlobalSwitchCompensation} from './workspaces.js';
 
 export interface WorkspaceEnvironment<WindowId> {
     activeMonitor(): MonitorIndex;
     activeWorkspace(): number;
     apply(moves: readonly WindowMove<WindowId>[]): void;
+    monitorCount(): number;
     windowPlacements(): readonly WindowPlacement<WindowId>[];
     workspaceCount(): number;
 }
 
 export class WorkspaceSwitcher<WindowId> {
     readonly #environment: WorkspaceEnvironment<WindowId>;
+    readonly workspaces: MonitorWorkspaces;
     #activeWorkspace: number;
-    #expectedMonitor: MonitorIndex | null = null;
+    readonly #expectedMonitors: {monitor: MonitorIndex; token: symbol}[] = [];
 
     constructor(environment: WorkspaceEnvironment<WindowId>) {
         this.#environment = environment;
         this.#activeWorkspace = environment.activeWorkspace();
+        this.workspaces = new MonitorWorkspaces(
+            environment.monitorCount(),
+            environment.workspaceCount()
+        );
     }
 
     switch(nativeSwitch: () => void): void {
@@ -24,17 +31,46 @@ export class WorkspaceSwitcher<WindowId> {
     }
 
     switchOn(targetMonitor: MonitorIndex, nativeSwitch: () => void): void {
-        const previousExpectedMonitor = this.#expectedMonitor;
-        this.#expectedMonitor = targetMonitor;
+        const finish = this.beginOn(targetMonitor);
 
         try {
             nativeSwitch();
         } finally {
-            this.#expectedMonitor = previousExpectedMonitor;
+            finish();
         }
     }
 
+    beginOn(targetMonitor: MonitorIndex): () => void {
+        const token = Symbol('workspace-switch-target');
+        this.#expectedMonitors.push({monitor: targetMonitor, token});
+        let active = true;
+
+        return (): void => {
+            if (!active) {
+                return;
+            }
+
+            active = false;
+            const index = this.#expectedMonitors.findIndex(entry => entry.token === token);
+            if (index !== -1) {
+                this.#expectedMonitors.splice(index, 1);
+            }
+        };
+    }
+
+    refresh(): void {
+        this.workspaces.resize(
+            this.#environment.monitorCount(),
+            this.#environment.workspaceCount()
+        );
+    }
+
+    reset(): void {
+        this.workspaces.reset(this.#environment.monitorCount(), this.#environment.workspaceCount());
+    }
+
     workspaceChanged(): void {
+        this.refresh();
         const previousWorkspace = this.#activeWorkspace;
         const activeWorkspace = this.#environment.activeWorkspace();
         this.#activeWorkspace = activeWorkspace;
@@ -44,7 +80,7 @@ export class WorkspaceSwitcher<WindowId> {
         }
 
         this.#completeTransition(
-            this.#expectedMonitor ?? this.#environment.activeMonitor(),
+            this.#expectedMonitors.at(-1)?.monitor ?? this.#environment.activeMonitor(),
             this.#environment.windowPlacements(),
             this.#environment.workspaceCount(),
             previousWorkspace,
@@ -68,5 +104,6 @@ export class WorkspaceSwitcher<WindowId> {
                 activeWorkspace
             )
         );
+        this.workspaces.completeSwitch(targetMonitor, previousWorkspace, activeWorkspace);
     }
 }
