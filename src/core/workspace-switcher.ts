@@ -1,58 +1,71 @@
 import type {MonitorIndex} from './monitor.js';
-import {
-    type SwitchDirection,
-    type WindowMove,
-    type WindowPlacement,
-    planGlobalSwitchCompensation,
-    planMonitorSwitch,
-} from './workspaces.js';
+import {type WindowMove, type WindowPlacement, planGlobalSwitchCompensation} from './workspaces.js';
 
 export interface WorkspaceEnvironment<WindowId> {
     activeMonitor(): MonitorIndex;
     activeWorkspace(): number;
     apply(moves: readonly WindowMove<WindowId>[]): void;
-    primaryMonitor(): MonitorIndex;
     windowPlacements(): readonly WindowPlacement<WindowId>[];
     workspaceCount(): number;
 }
 
 export class WorkspaceSwitcher<WindowId> {
     readonly #environment: WorkspaceEnvironment<WindowId>;
+    #activeWorkspace: number;
+    #expectedMonitor: MonitorIndex | null = null;
 
     constructor(environment: WorkspaceEnvironment<WindowId>) {
         this.#environment = environment;
+        this.#activeWorkspace = environment.activeWorkspace();
     }
 
-    switch(direction: SwitchDirection, nativeSwitch: () => void): void {
-        const activeMonitor = this.#environment.activeMonitor();
+    switch(nativeSwitch: () => void): void {
+        this.switchOn(this.#environment.activeMonitor(), nativeSwitch);
+    }
 
-        if (activeMonitor === this.#environment.primaryMonitor()) {
-            const previousWorkspace = this.#environment.activeWorkspace();
-            const workspaceCount = this.#environment.workspaceCount();
-            const targetWorkspace = previousWorkspace + direction;
+    switchOn(targetMonitor: MonitorIndex, nativeSwitch: () => void): void {
+        const previousExpectedMonitor = this.#expectedMonitor;
+        this.#expectedMonitor = targetMonitor;
 
-            if (targetWorkspace >= 0 && targetWorkspace < workspaceCount) {
-                this.#environment.apply(
-                    planGlobalSwitchCompensation(
-                        this.#environment.windowPlacements(),
-                        activeMonitor,
-                        workspaceCount,
-                        previousWorkspace,
-                        targetWorkspace
-                    )
-                );
-            }
-
+        try {
             nativeSwitch();
+        } finally {
+            this.#expectedMonitor = previousExpectedMonitor;
+        }
+    }
+
+    workspaceChanged(): void {
+        const previousWorkspace = this.#activeWorkspace;
+        const activeWorkspace = this.#environment.activeWorkspace();
+        this.#activeWorkspace = activeWorkspace;
+
+        if (activeWorkspace === previousWorkspace) {
             return;
         }
 
+        this.#completeTransition(
+            this.#expectedMonitor ?? this.#environment.activeMonitor(),
+            this.#environment.windowPlacements(),
+            this.#environment.workspaceCount(),
+            previousWorkspace,
+            activeWorkspace
+        );
+    }
+
+    #completeTransition(
+        targetMonitor: MonitorIndex,
+        windows: readonly WindowPlacement<WindowId>[],
+        workspaceCount: number,
+        previousWorkspace: number,
+        activeWorkspace: number
+    ): void {
         this.#environment.apply(
-            planMonitorSwitch(
-                this.#environment.windowPlacements(),
-                activeMonitor,
-                this.#environment.workspaceCount(),
-                direction
+            planGlobalSwitchCompensation(
+                windows,
+                targetMonitor,
+                workspaceCount,
+                previousWorkspace,
+                activeWorkspace
             )
         );
     }

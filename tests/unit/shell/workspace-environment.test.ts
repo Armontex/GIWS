@@ -13,7 +13,10 @@ describe('GnomeWorkspaceEnvironment', () => {
             is_on_all_workspaces: () => false,
         };
         const environment = new GnomeWorkspaceEnvironment(
-            {get_current_monitor: () => 1, get_primary_monitor: () => 0},
+            {
+                get_current_monitor: () => 1,
+                get_primary_monitor: () => 0,
+            },
             {
                 get_active_workspace_index: () => 0,
                 get_n_workspaces: () => 2,
