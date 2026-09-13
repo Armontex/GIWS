@@ -92,6 +92,7 @@ interface ThumbnailMethods {
 
 interface MonitorBinding {
     adjustment: OverviewAdjustment;
+    animationTarget: number | null;
     monitor: number;
     nativeAdjustment: OverviewAdjustment;
     thumbnails: OverviewThumbnailBox;
@@ -358,6 +359,7 @@ export class OverviewWorkspaceAdapter {
         );
         const binding: MonitorBinding = {
             adjustment,
+            animationTarget: null,
             monitor,
             nativeAdjustment,
             thumbnails,
@@ -409,18 +411,32 @@ export class OverviewWorkspaceAdapter {
         const {adjustment, view} = binding;
         const active = this.#logicalActive(binding.monitor);
 
+        if (binding.animationTarget === active) {
+            return;
+        }
+
         if (Math.abs(adjustment.value - active) <= POSITION_EPSILON) {
+            if (binding.animationTarget !== null) {
+                adjustment.remove_transition('value');
+                binding.animationTarget = null;
+            }
             view._animating = false;
             view._updateVisibility();
             return;
         }
 
+        binding.animationTarget = active;
         view._animating = true;
         view._updateVisibility();
         adjustment.remove_transition('value');
         adjustment.ease(active, {
             duration: WORKSPACE_SWITCH_TIME,
             onComplete: () => {
+                if (binding.animationTarget !== active) {
+                    return;
+                }
+
+                binding.animationTarget = null;
                 view._animating = false;
                 view._updateVisibility();
             },
