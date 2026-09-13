@@ -120,6 +120,7 @@ interface PendingBinding {
 }
 
 const WORKSPACE_SWITCH_TIME = 250;
+const POSITION_EPSILON = 0.001;
 
 export class OverviewWorkspaceAdapter {
     readonly #activeWorkspace: () => number;
@@ -171,11 +172,12 @@ export class OverviewWorkspaceAdapter {
     sync(animate = true): void {
         for (const binding of this.#bindings) {
             this.#order(binding);
+            const active = this.#logicalActive(binding.monitor);
 
-            if (animate) {
+            if (animate && Math.abs(binding.adjustment.value - active) > POSITION_EPSILON) {
                 binding.view._scrollToActive();
             } else {
-                binding.adjustment.value = this.#logicalActive(binding.monitor);
+                binding.adjustment.value = active;
                 binding.view._updateVisibility();
                 binding.view._updateWorkspacesState();
                 binding.thumbnails._updateIndicator();
@@ -405,10 +407,18 @@ export class OverviewWorkspaceAdapter {
 
     #scrollToActive(binding: MonitorBinding): void {
         const {adjustment, view} = binding;
+        const active = this.#logicalActive(binding.monitor);
+
+        if (Math.abs(adjustment.value - active) <= POSITION_EPSILON) {
+            view._animating = false;
+            view._updateVisibility();
+            return;
+        }
+
         view._animating = true;
         view._updateVisibility();
         adjustment.remove_transition('value');
-        adjustment.ease(this.#logicalActive(binding.monitor), {
+        adjustment.ease(active, {
             duration: WORKSPACE_SWITCH_TIME,
             onComplete: () => {
                 view._animating = false;

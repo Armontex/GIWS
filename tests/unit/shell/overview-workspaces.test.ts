@@ -12,6 +12,7 @@ import {
 } from '../../../src/shell/overview-workspaces.js';
 
 class FakeAdjustment implements OverviewAdjustment {
+    easeCalls = 0;
     lower = 0;
     page_increment = 1;
     page_size = 1;
@@ -52,6 +53,7 @@ class FakeAdjustment implements OverviewAdjustment {
     }
 
     ease(value: number, options: {onComplete?: () => void}): void {
+        this.easeCalls += 1;
         this.setValue(value);
         options.onComplete?.();
     }
@@ -185,10 +187,15 @@ describe('OverviewWorkspaceAdapter', () => {
         const secondaryThumbnails = thumbnails(shared);
         const model = new MonitorWorkspaces(2, 4);
         let activeWorkspace = 0;
+        const localAdjustments: FakeAdjustment[] = [];
         const adapter = new OverviewWorkspaceAdapter(
             model,
             () => activeWorkspace,
-            value => new FakeAdjustment(value)
+            value => {
+                const adjustment = new FakeAdjustment(value);
+                localAdjustments.push(adjustment);
+                return adjustment;
+            }
         );
 
         adapter.bind(
@@ -209,6 +216,9 @@ describe('OverviewWorkspaceAdapter', () => {
 
         expect(primaryView._scrollAdjustment.value).toBe(1);
         expect(secondaryView._scrollAdjustment.value).toBe(0);
+        primaryView._scrollToActive();
+        secondaryView._scrollToActive();
+        expect(localAdjustments.map(adjustment => adjustment.easeCalls)).toEqual([1, 0]);
         expect(secondaryView._workspaces.map(actor => actor.metaWorkspace.index())).toEqual([
             1, 2, 3, 0,
         ]);
