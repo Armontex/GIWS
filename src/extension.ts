@@ -113,7 +113,8 @@ export default class GiwsExtension extends Extension {
             const gestureAnimation = new WorkspaceGestureAnimationRouter(
                 windowManager._workspaceAnimation,
                 animation,
-                monitor => switcher.beginOn(asMonitorIndex(monitor))
+                monitor => switcher.beginGestureOn(asMonitorIndex(monitor)),
+                () => environment.activeWorkspace()
             );
             gestureAnimation.bind();
             resources.defer(() => {
@@ -139,7 +140,7 @@ export default class GiwsExtension extends Extension {
                         value,
                     }) as unknown as OverviewAdjustment;
                 },
-                monitor => switcher.beginOn(asMonitorIndex(monitor))
+                monitor => switcher.beginGestureOn(asMonitorIndex(monitor))
             );
             const workspaceManager = shellGlobal.workspace_manager;
             const bindOverview = (): void => {

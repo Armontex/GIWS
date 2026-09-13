@@ -1,5 +1,6 @@
 import {asMonitorIndex} from '../core/monitor.js';
 import type {MonitorWorkspaces} from '../core/monitor-workspaces.js';
+import type {WorkspaceSwitchLease} from '../core/workspace-switcher.js';
 
 export interface OverviewAdjustment {
     lower: number;
@@ -20,6 +21,10 @@ export interface OverviewSwipeTracker {
     connect(
         signal: 'begin',
         callback: (tracker: OverviewSwipeTracker, monitor: number) => void
+    ): number;
+    connect(
+        signal: 'end',
+        callback: (tracker: OverviewSwipeTracker, duration: number, endProgress: number) => void
     ): number;
     disconnect(id: number): void;
 }
@@ -101,10 +106,12 @@ interface GestureBinding {
     display: OverviewWorkspacesDisplay;
     endTouchGesture: OverviewWorkspacesDisplay['_endTouchGesture'];
     endTouchGestureOverride: OverviewWorkspacesDisplay['_endTouchGesture'];
-    finishTarget: (() => void) | null;
+    endId: number | null;
+    lease: WorkspaceSwitchLease | null;
     logicalStart: number;
     monitor: MonitorBinding | null;
     physicalStart: number;
+    workspaceStart: number;
 }
 
 interface PendingBinding {
@@ -118,7 +125,7 @@ export class OverviewWorkspaceAdapter {
     readonly #activeWorkspace: () => number;
     readonly #createAdjustment: AdjustmentFactory;
     readonly #model: MonitorWorkspaces;
-    readonly #beginOn: (monitor: number) => () => void;
+    readonly #beginOn: (monitor: number) => WorkspaceSwitchLease;
     #bindings: MonitorBinding[] = [];
     #gesture: GestureBinding | null = null;
     #pendingBind: PendingBinding | null = null;
@@ -128,7 +135,10 @@ export class OverviewWorkspaceAdapter {
         model: MonitorWorkspaces,
         activeWorkspace: () => number,
         createAdjustment: AdjustmentFactory,
-        beginOn: (monitor: number) => () => void = () => () => undefined
+        beginOn: (monitor: number) => WorkspaceSwitchLease = () => ({
+            commit: () => undefined,
+            finish: () => undefined,
+        })
     ) {
         this.#model = model;
         this.#activeWorkspace = activeWorkspace;
@@ -235,10 +245,12 @@ export class OverviewWorkspaceAdapter {
             display,
             endTouchGesture,
             endTouchGestureOverride: endTouchGesture,
-            finishTarget: null,
+            endId: null,
+            lease: null,
             logicalStart: 0,
             monitor: null,
             physicalStart: 0,
+            workspaceStart: 0,
         };
         const endTouchGestureOverride = (): void => {
             try {
@@ -259,7 +271,13 @@ export class OverviewWorkspaceAdapter {
             gesture.monitor = binding;
             gesture.physicalStart = display._scrollAdjustment.value;
             gesture.logicalStart = binding.adjustment.value;
-            gesture.finishTarget = this.#beginOn(monitor);
+            gesture.workspaceStart = this.#activeWorkspace();
+            gesture.lease = this.#beginOn(monitor);
+        });
+        gesture.endId = display._swipeTracker.connect('end', (_tracker, _duration, endProgress) => {
+            if (gesture.lease !== null && endProgress !== gesture.workspaceStart) {
+                gesture.lease.commit(endProgress);
+            }
         });
         gesture.adjustmentId = display._scrollAdjustment.connect('notify::value', () => {
             const binding = gesture.monitor;
@@ -288,7 +306,7 @@ export class OverviewWorkspaceAdapter {
         if (gesture.display._endTouchGesture === gesture.endTouchGestureOverride) {
             gesture.display._endTouchGesture = gesture.endTouchGesture;
         }
-        gesture.finishTarget?.();
+        gesture.lease?.finish();
         this.#gesture = null;
     }
 
@@ -301,6 +319,10 @@ export class OverviewWorkspaceAdapter {
             gesture.display._scrollAdjustment.disconnect(gesture.adjustmentId);
             gesture.adjustmentId = null;
         }
+        if (gesture.endId !== null) {
+            gesture.display._swipeTracker.disconnect(gesture.endId);
+            gesture.endId = null;
+        }
     }
 
     #finishGesture(): void {
@@ -309,8 +331,8 @@ export class OverviewWorkspaceAdapter {
             return;
         }
 
-        gesture.finishTarget?.();
-        gesture.finishTarget = null;
+        gesture.lease?.finish();
+        gesture.lease = null;
         gesture.monitor = null;
 
         if (this.#unbindRequested) {

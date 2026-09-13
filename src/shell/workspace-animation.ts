@@ -1,3 +1,5 @@
+import type {WorkspaceSwitchLease} from '../core/workspace-switcher.js';
+
 export interface WorkspaceAnimationMonitor {
     destroy: () => void;
     readonly index: number;
@@ -20,6 +22,10 @@ export interface WorkspaceSwipeTracker {
     connect(
         signal: 'begin',
         callback: (tracker: WorkspaceSwipeTracker, monitor: number) => void
+    ): number;
+    connect(
+        signal: 'end',
+        callback: (tracker: WorkspaceSwipeTracker, duration: number, endProgress: number) => void
     ): number;
     disconnect(id: number): void;
 }
@@ -66,46 +72,50 @@ export class TargetMonitorAnimationScope {
 
 export class WorkspaceGestureAnimationRouter {
     readonly #animation: TargetMonitorAnimationScope;
-    readonly #beginOn: (monitor: number) => () => void;
+    readonly #beginOn: (monitor: number) => WorkspaceSwitchLease;
     readonly #controller: WorkspaceGestureAnimationController;
-    #finishGesture: (() => void) | null = null;
     #beginId: number | null = null;
-    #finishOverride: WorkspaceGestureAnimationController['_finishWorkspaceSwitch'] | null = null;
-    #originalFinish: WorkspaceGestureAnimationController['_finishWorkspaceSwitch'] | null = null;
+    #endId: number | null = null;
+    #gesture: {lease: WorkspaceSwitchLease; startWorkspace: number} | null = null;
+    readonly #activeWorkspace: () => number;
 
     constructor(
         controller: WorkspaceGestureAnimationController,
         animation: TargetMonitorAnimationScope,
-        beginOn: (monitor: number) => () => void
+        beginOn: (monitor: number) => WorkspaceSwitchLease,
+        activeWorkspace: () => number
     ) {
         this.#controller = controller;
         this.#animation = animation;
         this.#beginOn = beginOn;
+        this.#activeWorkspace = activeWorkspace;
     }
 
     bind(): void {
         this.dispose();
 
-        const controller = this.#controller;
-        // Preserve the exact GNOME method so disabling the extension restores its prototype lookup.
-        // eslint-disable-next-line @typescript-eslint/unbound-method
-        const originalFinish = controller._finishWorkspaceSwitch;
-        const finishOverride = (switchData: WorkspaceAnimationSwitchData): void => {
-            try {
-                originalFinish.call(controller, switchData);
-            } finally {
-                this.#finish();
-            }
-        };
-
-        this.#originalFinish = originalFinish;
-        this.#finishOverride = finishOverride;
-        controller._finishWorkspaceSwitch = finishOverride;
-        this.#beginId = controller._swipeTracker.connect('begin', (_tracker, monitor) => {
+        this.#beginId = this.#controller._swipeTracker.connect('begin', (_tracker, monitor) => {
             this.#finish();
-            this.#finishGesture = this.#beginOn(monitor);
+            this.#gesture = {
+                lease: this.#beginOn(monitor),
+                startWorkspace: this.#activeWorkspace(),
+            };
             this.#animation.show(monitor);
         });
+        this.#endId = this.#controller._swipeTracker.connect(
+            'end',
+            (_tracker, _duration, endProgress) => {
+                const gesture = this.#gesture;
+                if (gesture === null) {
+                    return;
+                }
+
+                if (endProgress !== gesture.startWorkspace) {
+                    gesture.lease.commit(endProgress);
+                }
+                this.#finish();
+            }
+        );
     }
 
     dispose(): void {
@@ -113,21 +123,16 @@ export class WorkspaceGestureAnimationRouter {
             this.#controller._swipeTracker.disconnect(this.#beginId);
             this.#beginId = null;
         }
-        if (
-            this.#finishOverride !== null &&
-            this.#controller._finishWorkspaceSwitch === this.#finishOverride &&
-            this.#originalFinish !== null
-        ) {
-            this.#controller._finishWorkspaceSwitch = this.#originalFinish;
+        if (this.#endId !== null) {
+            this.#controller._swipeTracker.disconnect(this.#endId);
+            this.#endId = null;
         }
-        this.#finishOverride = null;
-        this.#originalFinish = null;
         this.#finish();
     }
 
     #finish(): void {
-        this.#finishGesture?.();
-        this.#finishGesture = null;
+        this.#gesture?.lease.finish();
+        this.#gesture = null;
     }
 }
 
