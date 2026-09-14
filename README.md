@@ -41,22 +41,24 @@ GNOME normally treats workspace switching as a global action. GIWS keeps the
 familiar shortcuts, but makes the result depend on the monitor under your
 pointer.
 
-| Active display     | What happens                                                  |
-| ------------------ | ------------------------------------------------------------- |
-| Primary monitor    | GNOME performs its native global workspace transition.        |
-| Secondary monitor  | Only that monitor's application windows change workspace.     |
-| All other monitors | Their visible windows and workspace context remain untouched. |
+| Interaction               | What happens                                                  |
+| ------------------------- | ------------------------------------------------------------- |
+| Shortcut on any monitor   | Its workspace changes with native GNOME animation and popup.  |
+| Mouse wheel or touchpad   | Only the workspace view where the gesture starts advances.    |
+| Dash or window activation | Only the monitor containing the selected window changes.      |
+| All other monitors        | Their visible windows and workspace context remain untouched. |
 
 No replacement keybindings, separate workspace switcher or new interaction
 model: keep using the GNOME workflow you already know.
 
 ## How it works
 
-1. GIWS listens to GNOME's existing `switch-to-workspace-left` and
-   `switch-to-workspace-right` shortcuts.
-2. It identifies the monitor under the pointer when a shortcut is pressed.
-3. It delegates primary-monitor switching back to GNOME, or moves the relevant
-   windows when a secondary monitor is active.
+1. GIWS observes GNOME workspace changes from native shortcuts and window
+   activation, including the Dash, mouse wheel and touchpad gestures.
+2. It identifies the target from the pointer for shortcuts or from the window
+   being activated.
+3. GNOME performs the transition while GIWS compensates every other monitor
+   and limits native visual feedback to the target display.
 
 When the extension is disabled, the original GNOME keybinding handlers are
 restored.
@@ -68,8 +70,8 @@ restored.
 - **Monitor-aware switching** — change the workspace context where you are
   working.
 - **Native shortcuts** — configure keys in GNOME Settings as usual.
-- **Primary monitor stays native** — GIWS preserves GNOME's standard global
-  transition there.
+- **Native feedback everywhere** — GNOME animation follows the target monitor;
+  the workspace popup follows it for shortcut-driven switching.
 - **Clean lifecycle** — original handlers are restored when GIWS is disabled.
 - **TypeScript codebase** — compiled to native GJS ES modules with strict
   checks.
@@ -148,7 +150,7 @@ Current compatibility and limitations:
 | Display configuration | Workspaces spanning every display |
 | Navigation            | Left and right                    |
 | Windows               | Normal application windows        |
-| Secondary animation   | Not implemented yet               |
+| Visual feedback       | Native animation on every monitor |
 
 Sticky windows, special windows and other non-standard window types are left
 untouched. A short manual check on physical monitors is still recommended for
@@ -173,6 +175,9 @@ with isolated D-Bus, dconf and XDG directories. It validates:
 - discovery of two virtual monitors;
 - stock keyboard shortcut dispatch through Mutter;
 - primary and secondary monitor window placement;
+- Dash-style window activation in both directions;
+- monitor-aware mouse-wheel switching inside Overview;
+- native animation and popup targeting;
 - absence of GJS runtime errors during the interaction scenario.
 
 ```bash
@@ -220,7 +225,6 @@ from `disable()`.
 
 ## Roadmap
 
-- [ ] Add polished secondary-monitor transition animation.
 - [ ] Expand support to newer GNOME Shell releases.
 - [ ] Publish GIWS for one-click installation through Extension Manager.
 - [ ] Add the project logo, visual walkthrough and real multi-monitor demo.

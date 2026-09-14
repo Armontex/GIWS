@@ -11,6 +11,7 @@ import {
 
 export interface DisplayProvider {
     get_current_monitor(): number;
+    get_n_monitors(): number;
     get_primary_monitor(): number;
 }
 
@@ -39,6 +40,10 @@ export class GnomeWorkspaceEnvironment implements WorkspaceEnvironment<ShellWind
 
     primaryMonitor(): MonitorIndex {
         return asMonitorIndex(this.#display.get_primary_monitor());
+    }
+
+    monitorCount(): number {
+        return this.#display.get_n_monitors();
     }
 
     activeWorkspace(): number {
