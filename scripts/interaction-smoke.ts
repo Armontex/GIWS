@@ -365,6 +365,43 @@ export async function run(): Promise<void> {
         `expected a stationary visible primary and moving secondary monitor, got ${JSON.stringify(secondaryAnimation)}`
     );
     assert(popupMonitor(workspaceWindowManager) === 1, 'workspace popup was not on secondary');
+    await waitUntil(
+        () => animationController._switchData === null,
+        'secondary workspace animation did not finish'
+    );
+
+    Main.activateWindow(primaryCurrent);
+    await waitUntil(() => primaryCurrent.has_focus(), 'primary window did not receive focus');
+    assert(
+        shellGlobal.display.get_current_monitor() === 1,
+        'focus unexpectedly moved the pointer from the secondary monitor'
+    );
+
+    sendWorkspaceShortcut(keyboard, Clutter.KEY_Right);
+    await waitUntil(
+        () =>
+            shellGlobal.workspace_manager.get_active_workspace_index() === 1 &&
+            workspaceOf(primaryCurrent) === 1 &&
+            workspaceOf(primaryNext) === 2 &&
+            workspaceOf(secondaryCurrent) === 0 &&
+            workspaceOf(secondaryNext) === 1,
+        'focused primary window overrode the secondary keyboard switch target'
+    );
+    await waitUntil(
+        () => animationController._switchData === null,
+        'cross-focused secondary animation did not finish'
+    );
+
+    Main.activateWindow(secondaryCurrent);
+    await waitUntil(
+        () =>
+            shellGlobal.workspace_manager.get_active_workspace_index() === 0 &&
+            workspaceOf(primaryCurrent) === 0 &&
+            workspaceOf(primaryNext) === 1 &&
+            workspaceOf(secondaryCurrent) === 0 &&
+            workspaceOf(secondaryNext) === 1,
+        'cross-focused keyboard scenario did not restore its initial placement'
+    );
 
     shellMain.overview.show();
     await waitUntil(() => shellMain.overview.visible, 'overview did not open before desktop swipe');

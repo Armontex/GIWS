@@ -155,7 +155,7 @@ export class WorkspaceSwitcher<WindowId> {
     }
 
     #findExpectedMonitor(activeWorkspace: number): ExpectedMonitor | undefined {
-        return this.#expectedMonitors.findLast(expected => {
+        return this.#expectedMonitors.find(expected => {
             return expected.destination === null || expected.destination === activeWorkspace;
         });
     }

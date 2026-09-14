@@ -150,6 +150,26 @@ describe('WorkspaceSwitcher', () => {
         ]);
     });
 
+    test('keeps the explicit switch target during nested focus activation', () => {
+        const state = environment({
+            activeMonitor: 1,
+            windows: [
+                {id: 'primary', monitor: asMonitorIndex(0), workspace: 0},
+                {id: 'secondary', monitor: asMonitorIndex(1), workspace: 0},
+            ],
+        });
+        const switcher = new WorkspaceSwitcher(state.environment);
+
+        switcher.switchOn(asMonitorIndex(1), () => {
+            switcher.switchOn(asMonitorIndex(0), () => {
+                state.setActiveWorkspace(1);
+                switcher.workspaceChanged();
+            });
+        });
+
+        expect(state.apply.mock.calls).toEqual([[[{id: 'primary', workspace: 1}]]]);
+    });
+
     test('keeps the target monitor until an asynchronous gesture finishes', () => {
         const state = environment({
             activeMonitor: 0,
