@@ -1,20 +1,26 @@
 {
   "name": "giws",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Independent workspaces per monitor for GNOME Shell",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "packageManager": "npm@10.9.8",
   "scripts": {
-    "build": "tsc --noEmit",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "build": "node scripts/build.mjs",
+    "check": "npm run check:static && npm run build && npm run test:run",
+    "check:static": "npm run format:check && npm run lint && npm run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "install:extension": "npm run pack && gnome-extensions install --force giws@armontex.shell-extension.zip",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests",
+    "pack": "npm run build && npm run pack:dist",
+    "pack:dist": "cd dist && zip -qr ../giws@armontex.shell-extension.zip .",
+    "runtime:smoke": "npm run build && node scripts/runtime-smoke.ts",
+    "test": "npm run build && npm run test:run",
+    "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
@@ -30,6 +36,9 @@
     "@commitlint/cli": "21.2.2",
     "@commitlint/config-conventional": "21.2.2",
     "@eslint/js": "10.0.1",
+    "@girs/gjs": "4.9.0",
+    "@girs/gnome-shell": "46.0.2",
+    "@types/node": "22.20.2",
     "eslint": "10.10.0",
     "globals": "17.12.0",
     "prettier": "3.9.6",
