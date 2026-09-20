@@ -1,6 +1,6 @@
-<!-- TODO(brand): Add the GIWS logo here. Recommended: assets/logo.svg, approximately 160 px wide. -->
-
 <div align="center">
+
+<img src="assets/logo.svg" alt="" width="128" />
 
 <h1>GIWS</h1>
 
@@ -31,7 +31,11 @@
 
 </div>
 
-<!-- TODO(media): Add a short GIF showing workspace switching on the active monitor. Recommended: assets/demo.gif, under 8 MB. -->
+<p align="center">
+  <img src="assets/demo.gif" alt="The same shortcut without GIWS moves every monitor; with GIWS only the monitor under the pointer moves" width="960" />
+</p>
+
+<p align="center"><sub>Recorded from a headless GNOME Shell with two virtual monitors — the same session the smoke tests use. Animations run at a fifth of their speed so the recording can catch them.</sub></p>
 
 ---
 
@@ -63,7 +67,9 @@ model: keep using the GNOME workflow you already know.
 When the extension is disabled, the original GNOME keybinding handlers are
 restored.
 
-<!-- TODO(media): Add a two-column screenshot here: primary-monitor switch vs secondary-monitor switch. Recommended: assets/workspace-behaviour.png. -->
+<p align="center">
+  <img src="assets/workspace-behaviour.png" alt="Two monitors showing different workspaces after a monitor-aware switch" width="960" />
+</p>
 
 ## Highlights
 
@@ -194,13 +200,14 @@ npm run check
 npm run pack
 ```
 
-| Command                 | Purpose                                             |
-| ----------------------- | --------------------------------------------------- |
-| `npm run check`         | Formatting, linting, type checking, build and tests |
-| `npm test`              | Build and run the test suite                        |
-| `npm run build`         | Compile the extension into `dist/`                  |
-| `npm run pack`          | Create the installable extension ZIP                |
-| `npm run runtime:smoke` | Run isolated GNOME lifecycle and interaction checks |
+| Command                 | Purpose                                              |
+| ----------------------- | ---------------------------------------------------- |
+| `npm run check`         | Formatting, linting, type checking, build and tests  |
+| `npm test`              | Build and run the test suite                         |
+| `npm run build`         | Compile the extension into `dist/`                   |
+| `npm run pack`          | Create the installable extension ZIP                 |
+| `npm run runtime:smoke` | Run isolated GNOME lifecycle and interaction checks  |
+| `npm run demo:capture`  | Record the README demo from a headless GNOME session |
 
 Commits and pull-request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/). Jira references
