@@ -1,0 +1,65 @@
+name: backmerge
+
+# Everything that lands on `main` has to return to `develop`: otherwise the
+# branches drift and the next release pull request conflicts over files that
+# never really diverged.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  propose:
+    name: propose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # `contents: write` is not for pushing: enabling auto-merge changes the
+      # state of a branch, and GitHub asks for repository rights for that, not
+      # just pull-request rights. Without it the mutation answers "Resource not
+      # accessible".
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # Full history: a shallow clone has nothing to count `develop..main` with.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: What develop is still missing
+        id: behind
+        run: |
+          set -euo pipefail
+          count="$(git rev-list --count origin/develop..origin/main)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "commits on main that develop does not have: $count"
+
+      # Auto-merge belongs here precisely because nothing leaves the project:
+      # the content is already released, and this returns history rather than
+      # publishing it. The request still waits for `quality` and `commitlint` —
+      # the same checks that already passed on `main`, because `ci.yml` listens
+      # to pushes into it too.
+      - name: Pull request back into develop
+        if: steps.behind.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > body.md <<'MD'
+          Everything that lands on `main` returns to `develop`: otherwise the
+          branches drift and the next release pull request conflicts over files
+          that never really diverged.
+
+          Nothing leaves the project from here — the content is already
+          released — so this request merges itself once the checks agree.
+          MD
+          if ! gh pr list --base develop --head main --state open --json number --jq '.[0].number // empty' | grep -q .; then
+            gh pr create --base develop --head main \
+              --title "chore: merge main back into develop" \
+              --body-file body.md
+          fi
+          number="$(gh pr list --base develop --head main --state open --json number --jq '.[0].number')"
+          gh pr merge "$number" --auto --merge

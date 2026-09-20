@@ -36,7 +36,16 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: npx --no-install commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+        run: |
+          set -euo pipefail
+          # First parent and no merges: a branch answers for the messages it
+          # wrote itself, not for history it merged in — those were judged by
+          # the request that brought them. The merge message is written by
+          # GitHub, and the convention does not apply to it. Without this the
+          # backmerge request fails on commits that already passed on `main`.
+          for sha in $(git rev-list --first-parent --no-merges "$BASE_SHA".."$HEAD_SHA"); do
+            git log -1 --pretty=%B "$sha" | npx --no-install commitlint --verbose
+          done
 
       - name: Validate pull-request title
         env:

@@ -206,6 +206,31 @@ Commits and pull-request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/). Jira references
 are intentionally not used.
 
+### Releasing
+
+`develop` integrates; `main` carries what was released. Nothing is published by
+hand:
+
+1. Raise `version` in `package.json` on a branch and write the matching
+   `CHANGELOG.md` section, then merge that branch into `develop`.
+2. `release-pr` notices a version with no tag and opens — or refreshes — a
+   single pull request from `develop` into `main`, with the changelog section
+   as its body.
+3. Merging that request is the release decision, and it takes a **merge
+   commit**: a squash would rewrite the SHA and leave the backmerge conflicting
+   over files that never diverged. `main` allows nothing else.
+4. `release` tags the merged `main` commit, builds the extension package from
+   the repository and publishes a GitHub release with the archive attached.
+5. `backmerge` returns `main` to `develop` and merges itself once the checks
+   agree, so the branches never drift.
+
+A merge into `main` that leaves the version alone releases nothing: the version
+in the manifest, without a tag, is the only release marker.
+
+Publishing to [extensions.gnome.org](https://extensions.gnome.org) stays manual
+— the site has no upload API. The archive attached to the GitHub release is the
+one to submit.
+
 ### Project structure
 
 ```text
