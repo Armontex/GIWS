@@ -1,6 +1,6 @@
 {
   "name": "giws",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Independent workspaces per monitor for GNOME Shell",
   "type": "module",
@@ -18,7 +18,7 @@
     "install:extension": "npm run pack && gnome-extensions install --force giws@armontex.shell-extension.zip",
     "lint": "eslint .",
     "pack": "npm run build && npm run pack:dist",
-    "pack:dist": "cd dist && zip -qr ../giws@armontex.shell-extension.zip .",
+    "pack:dist": "rm -f giws@armontex.shell-extension.zip && cd dist && zip -qr ../giws@armontex.shell-extension.zip . -x './schemas/gschemas.compiled'",
     "runtime:smoke": "npm run build && node scripts/runtime-smoke.ts",
     "test": "npm run build && npm run test:run",
     "test:run": "vitest run",

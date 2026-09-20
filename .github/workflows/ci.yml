@@ -69,6 +69,21 @@ jobs:
       - name: Verify extension package
         run: unzip -t giws@armontex.shell-extension.zip
 
+      # The archive is reviewed by people at extensions.gnome.org, and the
+      # rejections are mechanical ones: build artifacts left in the package,
+      # files that do not belong. Finding them here costs seconds; finding them
+      # after a submission costs a review round.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Check the package against the review rules
+        run: |
+          set -euo pipefail
+          pip install --quiet --upgrade shexli
+          shexli giws@armontex.shell-extension.zip
+
       - name: Upload extension package
         uses: actions/upload-artifact@v7
         with:
