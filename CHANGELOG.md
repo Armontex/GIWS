@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   virtual monitors without modifying the active desktop session.
 - Continuous integration for static checks, builds, tests, and installable
   extension package artifacts.
+- Automated release flow: a version without a tag proposes the merge into
+  `main`, the merged commit is tagged and published with the extension archive
+  attached, and `main` is merged back into `develop`.
+- Project logo and a recorded two-monitor demonstration, captured from the same
+  headless GNOME session the smoke tests use.
 
 ### Fixed
 

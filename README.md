@@ -1,6 +1,6 @@
-<!-- TODO(brand): Add the GIWS logo here. Recommended: assets/logo.svg, approximately 160 px wide. -->
-
 <div align="center">
+
+<img src="assets/logo.svg" alt="" width="128" />
 
 <h1>GIWS</h1>
 
@@ -31,7 +31,11 @@
 
 </div>
 
-<!-- TODO(media): Add a short GIF showing workspace switching on the active monitor. Recommended: assets/demo.gif, under 8 MB. -->
+<p align="center">
+  <img src="assets/demo.gif" alt="The same shortcut without GIWS moves every monitor; with GIWS only the monitor under the pointer moves" width="960" />
+</p>
+
+<p align="center"><sub>Recorded from a headless GNOME Shell with two virtual monitors — the same session the smoke tests use. Animations run at a fifth of their speed so the recording can catch them.</sub></p>
 
 ---
 
@@ -63,7 +67,9 @@ model: keep using the GNOME workflow you already know.
 When the extension is disabled, the original GNOME keybinding handlers are
 restored.
 
-<!-- TODO(media): Add a two-column screenshot here: primary-monitor switch vs secondary-monitor switch. Recommended: assets/workspace-behaviour.png. -->
+<p align="center">
+  <img src="assets/workspace-behaviour.png" alt="Two monitors showing different workspaces after a monitor-aware switch" width="960" />
+</p>
 
 ## Highlights
 
@@ -194,17 +200,43 @@ npm run check
 npm run pack
 ```
 
-| Command                 | Purpose                                             |
-| ----------------------- | --------------------------------------------------- |
-| `npm run check`         | Formatting, linting, type checking, build and tests |
-| `npm test`              | Build and run the test suite                        |
-| `npm run build`         | Compile the extension into `dist/`                  |
-| `npm run pack`          | Create the installable extension ZIP                |
-| `npm run runtime:smoke` | Run isolated GNOME lifecycle and interaction checks |
+| Command                 | Purpose                                              |
+| ----------------------- | ---------------------------------------------------- |
+| `npm run check`         | Formatting, linting, type checking, build and tests  |
+| `npm test`              | Build and run the test suite                         |
+| `npm run build`         | Compile the extension into `dist/`                   |
+| `npm run pack`          | Create the installable extension ZIP                 |
+| `npm run runtime:smoke` | Run isolated GNOME lifecycle and interaction checks  |
+| `npm run demo:capture`  | Record the README demo from a headless GNOME session |
 
 Commits and pull-request titles follow
 [Conventional Commits](https://www.conventionalcommits.org/). Jira references
 are intentionally not used.
+
+### Releasing
+
+`develop` integrates; `main` carries what was released. Nothing is published by
+hand:
+
+1. Raise `version` in `package.json` on a branch and write the matching
+   `CHANGELOG.md` section, then merge that branch into `develop`.
+2. `release-pr` notices a version with no tag and opens — or refreshes — a
+   single pull request from `develop` into `main`, with the changelog section
+   as its body.
+3. Merging that request is the release decision, and it takes a **merge
+   commit**: a squash would rewrite the SHA and leave the backmerge conflicting
+   over files that never diverged. `main` allows nothing else.
+4. `release` tags the merged `main` commit, builds the extension package from
+   the repository and publishes a GitHub release with the archive attached.
+5. `backmerge` returns `main` to `develop` and merges itself once the checks
+   agree, so the branches never drift.
+
+A merge into `main` that leaves the version alone releases nothing: the version
+in the manifest, without a tag, is the only release marker.
+
+Publishing to [extensions.gnome.org](https://extensions.gnome.org) stays manual
+— the site has no upload API. The archive attached to the GitHub release is the
+one to submit.
 
 ### Project structure
 
