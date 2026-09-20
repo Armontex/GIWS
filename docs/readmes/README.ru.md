@@ -194,6 +194,14 @@ npm run runtime:smoke
 
 Smoke-окружение не изменяет активный сеанс рабочего стола.
 
+Архив дополнительно проверяется по правилам ревью extensions.gnome.org, чтобы
+заявку не отклонили из-за механической мелочи. Та же проверка идёт в CI:
+
+```bash
+pip install shexli
+npm run pack && shexli giws@armontex.shell-extension.zip
+```
+
 ## Разработка
 
 ```bash

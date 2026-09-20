@@ -192,6 +192,15 @@ npm run runtime:smoke
 
 The smoke environment does not modify the active desktop session.
 
+The archive is also checked against the extensions.gnome.org review rules, so a
+submission is not rejected for something mechanical. The same check runs on
+every CI run:
+
+```bash
+pip install shexli
+npm run pack && shexli giws@armontex.shell-extension.zip
+```
+
 ## Development
 
 ```bash
