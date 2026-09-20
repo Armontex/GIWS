@@ -10,18 +10,40 @@ on:
 permissions:
   contents: read
 
+# A push on top of a push cancels the previous run of the same branch: there is
+# no reason to check an intermediate state, and it holds the queue. On a
+# long-lived branch the run is not cancelled — the release and backmerge
+# requests take their required checks from it.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality:
     name: quality
+    # A request whose head is a long-lived branch is a release or a return from
+    # `main`: the same commit was already checked by the push into that branch,
+    # and a second run only repeats the work. Such requests are opened by a bot,
+    # and GitHub holds a run started by a non-human until someone approves it —
+    # that is the yellow "awaiting approval" banner on every release.
+    #
+    # The same-repository check is not optional: a branch name is chosen by
+    # whoever created the branch, and in a fork it can be called `main`. Without
+    # it a request from a fork would excuse itself from the required checks by
+    # taking their name — a skipped job counts as a successful one.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository
+      || !contains(fromJSON('["develop", "main"]'), github.head_ref)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          # Otherwise the job token stays in `.git/config`, and anything that
+          # archives the working directory carries it along. Nothing pushes here.
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
