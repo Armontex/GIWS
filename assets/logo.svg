@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="GIWS">
+    <title>GIWS</title>
+    <defs>
+        <clipPath id="giws-left-screen">
+            <rect x="12" y="34" width="50" height="60" rx="9" />
+        </clipPath>
+        <clipPath id="giws-right-screen">
+            <rect x="66" y="34" width="50" height="60" rx="9" />
+        </clipPath>
+    </defs>
+    <rect width="128" height="128" rx="28" fill="#241F31" />
+    <rect x="12" y="34" width="50" height="60" rx="9" fill="#3D3846" />
+    <rect x="66" y="34" width="50" height="60" rx="9" fill="#3D3846" />
+    <g clip-path="url(#giws-left-screen)">
+        <rect x="2" y="46" width="26" height="36" rx="5" fill="#77767B" opacity="0.45" />
+        <rect x="34" y="46" width="34" height="36" rx="5" fill="#3584E4" />
+    </g>
+    <g clip-path="url(#giws-right-screen)">
+        <rect x="76" y="46" width="30" height="36" rx="5" fill="#F4A261" />
+    </g>
+</svg>

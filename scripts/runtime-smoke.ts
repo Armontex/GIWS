@@ -40,14 +40,17 @@ export function buildGSettingsCommands(): GSettingsCommand[] {
     ];
 }
 
-export function buildHeadlessShellArguments(automationScript?: string): string[] {
+export function buildHeadlessShellArguments(
+    automationScript?: string,
+    monitorSize = '1280x720'
+): string[] {
     const arguments_ = [
         '--headless',
         '--no-x11',
         '--mode=user',
         '--wayland-display=giws-smoke',
-        '--virtual-monitor=1280x720',
-        '--virtual-monitor=1280x720',
+        `--virtual-monitor=${monitorSize}`,
+        `--virtual-monitor=${monitorSize}`,
     ];
 
     if (automationScript !== undefined) {
