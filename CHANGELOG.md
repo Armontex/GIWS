@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-21
+
+### Fixed
+
+- Stop shipping the compiled GSettings schema inside the extension archive.
+  extensions.gnome.org compiles it on install and rejects packages that carry
+  the build artifact.
+
 ## [0.1.0] - 2026-09-17
 
 ### Added
@@ -39,5 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window previews after transitions.
 - Limit primary-monitor workspace animation to the primary monitor.
 
-[Unreleased]: https://github.com/Armontex/GIWS/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Armontex/GIWS/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Armontex/GIWS/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Armontex/GIWS/releases/tag/v0.1.0

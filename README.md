@@ -35,7 +35,7 @@
   <img src="assets/demo.gif" alt="The same shortcut without GIWS moves every monitor; with GIWS only the monitor under the pointer moves" width="960" />
 </p>
 
-<p align="center"><sub>Recorded from a headless GNOME Shell with two virtual monitors — the same session the smoke tests use. Animations run at a fifth of their speed so the recording can catch them.</sub></p>
+<p align="center"><sub>Recorded from a headless GNOME Shell with two virtual monitors — the same session the smoke tests use. Animations run at an eighth of their speed so the recording can catch them.</sub></p>
 
 ---
 
@@ -191,6 +191,15 @@ npm run runtime:smoke
 ```
 
 The smoke environment does not modify the active desktop session.
+
+The archive is also checked against the extensions.gnome.org review rules, so a
+submission is not rejected for something mechanical. The same check runs on
+every CI run:
+
+```bash
+pip install shexli
+npm run pack && shexli giws@armontex.shell-extension.zip
+```
 
 ## Development
 
