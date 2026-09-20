@@ -1,0 +1,77 @@
+name: release-pr
+
+# The version is raised on a branch, the branch lands on `develop`, and from
+# there the pull request into `main` assembles itself, with a body taken from
+# CHANGELOG. A person still presses the button: behind it is a tag and a public
+# release, and neither is worth withdrawing.
+on:
+  push:
+    branches: [develop]
+
+permissions: {}
+
+jobs:
+  propose:
+    name: propose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # Otherwise the job token stays in `.git/config`, and anything that
+          # archives the working directory carries it along. Nothing pushes here.
+          persist-credentials: false
+
+      # The release marker is the same for both workflows: a version in the
+      # manifest that has no tag yet. `develop` also receives changes that leave
+      # the version alone, and those propose nothing.
+      - name: Read the version and whether it was already released
+        id: named
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+            echo "fresh=false" >> "$GITHUB_OUTPUT"
+            echo "v$version is already released — nothing to propose"
+          else
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull request into main
+        if: steps.named.outputs.fresh == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.named.outputs.version }}
+        run: |
+          set -euo pipefail
+          # This version's section of CHANGELOG, in Keep a Changelog form.
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          {
+            echo "Merging releases \`v$VERSION\`: \`release.yml\` tags the merged"
+            echo "\`main\` commit and publishes the extension package from it."
+            echo
+            echo "Merge with a merge commit, never a squash: a squash rewrites the"
+            echo "SHA and the backmerge into \`develop\` then conflicts over files"
+            echo "that never really diverged."
+            echo
+            cat notes.md
+          } > body.md
+          # One pull request per release: a later push to `develop` updates the
+          # body instead of opening a second one.
+          open="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$open" ]]; then
+            gh pr edit "$open" --title "chore(release): $VERSION" --body-file body.md
+          else
+            gh pr create --base main --head develop --title "chore(release): $VERSION" --body-file body.md
+          fi

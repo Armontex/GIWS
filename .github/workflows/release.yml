@@ -1,0 +1,160 @@
+name: release
+
+# The version is raised by hand on a branch: the author edits `package.json` and
+# writes the CHANGELOG section. The tag is placed from here, by the first job,
+# on the `main` commit that actually shipped: merging rewrites nothing here, but
+# a tag placed on the branch before the merge would still point at a commit that
+# `main` never received if the merge method ever changed.
+#
+# Hence the trigger is a branch, not a tag: a tag created by the job token starts
+# no other workflow, so "place the tag" and "publish" have to live in one file.
+on:
+  push:
+    branches: [main]
+
+# Rights are handed out per job, not to the whole file: one job builds the
+# package, another creates the release, and the one holding write access runs no
+# build of its own.
+permissions: {}
+
+jobs:
+  tag:
+    name: tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.named.outputs.version }}
+      fresh: ${{ steps.named.outputs.fresh }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The version in the manifest is the only release marker: `main` also
+      # receives changes that leave it alone, and such a merge releases nothing.
+      - name: Read the version and whether it was already released
+        id: named
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+            echo "fresh=false" >> "$GITHUB_OUTPUT"
+            echo "v$version is already released — nothing to release"
+          else
+            echo "fresh=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # An object with an author, a date and a message, not a bare pointer: `git
+      # describe` and the hosting read an annotated tag as a release. Through the
+      # API rather than `git push`: there is nothing to push, and the token then
+      # never settles into `.git/config`.
+      - name: Tag this commit
+        if: steps.named.outputs.fresh == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.named.outputs.version }}
+        run: |
+          set -euo pipefail
+          object="$(gh api -X POST "repos/$GITHUB_REPOSITORY/git/tags" \
+            -f tag="v$VERSION" \
+            -f message="v$VERSION" \
+            -f object="$GITHUB_SHA" \
+            -f type=commit \
+            --jq .sha)"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/v$VERSION" \
+            -f sha="$object"
+
+  build:
+    name: build
+    needs: [tag]
+    if: needs.tag.outputs.fresh == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The same tree that passed ci, but the package has to come out here too:
+      # the archive people install is built from the repository, not from a
+      # developer machine.
+      - name: Package extension
+        run: npm run pack
+
+      - name: Verify extension package
+        run: unzip -t giws@armontex.shell-extension.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: giws-release
+          path: giws@armontex.shell-extension.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  announce:
+    name: announce
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: giws-release
+          path: dist-release
+
+      - name: Release on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.tag.outputs.version }}
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          # This version's section of CHANGELOG, in Keep a Changelog form.
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          {
+            cat notes.md
+            echo
+            echo "## Install"
+            echo
+            echo '```bash'
+            echo "gnome-extensions install --force giws@armontex.shell-extension.zip"
+            echo "gnome-extensions enable giws@armontex"
+            echo '```'
+            echo
+            echo "On Wayland, log out and back in after installing a new extension."
+          } > body.md
+          if [[ -s notes.md ]]; then
+            gh release create "$TAG" dist-release/* --title "$TAG" --notes-file body.md
+          else
+            gh release create "$TAG" dist-release/* --title "$TAG" --generate-notes
+          fi
