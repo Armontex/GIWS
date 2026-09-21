@@ -30,16 +30,30 @@ headerbar { min-height: 46px; }
 `;
 
 function parseArguments(argv) {
-    const parsed = {kind: 'browser', title: 'Window'};
+    const parsed = {
+        height: WINDOW_HEIGHT,
+        kind: 'browser',
+        title: 'Window',
+        width: WINDOW_WIDTH,
+    };
 
     for (let index = 0; index < argv.length; index += 1) {
         const value = argv[index + 1];
 
-        if (argv[index] === '--kind' && value !== undefined) {
+        if (value === undefined) {
+            continue;
+        }
+        if (argv[index] === '--kind') {
             parsed.kind = value;
         }
-        if (argv[index] === '--title' && value !== undefined) {
+        if (argv[index] === '--title') {
             parsed.title = value;
+        }
+        if (argv[index] === '--width') {
+            parsed.width = Number.parseInt(value, 10);
+        }
+        if (argv[index] === '--height') {
+            parsed.height = Number.parseInt(value, 10);
         }
     }
     return parsed;
@@ -213,7 +227,7 @@ function buildBody(kind) {
     return browserBody();
 }
 
-const {kind, title} = parseArguments(system.programArgs);
+const {height, kind, title, width} = parseArguments(system.programArgs);
 
 Gtk.init();
 
@@ -227,8 +241,8 @@ Gtk.StyleContext.add_provider_for_display(
 );
 
 const window = new Gtk.Window({
-    defaultHeight: WINDOW_HEIGHT,
-    defaultWidth: WINDOW_WIDTH,
+    defaultHeight: height,
+    defaultWidth: width,
     title,
 });
 const header = new Gtk.HeaderBar({showTitleButtons: true});
