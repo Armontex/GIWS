@@ -1,0 +1,41 @@
+name: publish
+
+# Hands a release already on GitHub to extensions.gnome.org: one published
+# before `release` uploaded on its own, or one whose upload the site refused.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to upload, such as v0.1.2
+        required: true
+
+permissions: {}
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The archive the GitHub release carries, not a fresh build: the site
+      # receives exactly what people already install from the release.
+      - name: Download the release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'giws@armontex.shell-extension.zip' --dir dist-release
+
+      - name: Upload to extensions.gnome.org
+        env:
+          EGO_USERNAME: ${{ secrets.EGO_USERNAME }}
+          EGO_PASSWORD: ${{ secrets.EGO_PASSWORD }}
+        run: scripts/publish-ego.sh dist-release/giws@armontex.shell-extension.zip

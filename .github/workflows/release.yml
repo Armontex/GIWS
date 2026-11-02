@@ -158,3 +158,30 @@ jobs:
           else
             gh release create "$TAG" dist-release/* --title "$TAG" --generate-notes
           fi
+
+  publish:
+    name: publish
+    needs: [announce]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Nothing here writes to the repository: the job only hands the archive on.
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: giws-release
+          path: dist-release
+
+      # After the GitHub release, so a refused upload never holds that release
+      # back. `publish.yml` retries it, or uploads an older release, by hand.
+      - name: Upload to extensions.gnome.org
+        env:
+          EGO_USERNAME: ${{ secrets.EGO_USERNAME }}
+          EGO_PASSWORD: ${{ secrets.EGO_PASSWORD }}
+        run: scripts/publish-ego.sh dist-release/giws@armontex.shell-extension.zip
