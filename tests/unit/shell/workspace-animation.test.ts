@@ -7,6 +7,7 @@ import {
     TargetMonitorAnimationScope,
     type WorkspaceAnimationController,
     type WorkspaceAnimationMonitor,
+    type WorkspaceOrder,
 } from '../../../src/shell/workspace-animation.js';
 
 class FakeSwipeTracker {
@@ -70,6 +71,17 @@ interface FakeWorkspaceAnimationMonitor extends WorkspaceAnimationMonitor {
     progress: number;
 }
 
+const physicalOrder: WorkspaceOrder = {
+    activeMonitor: () => 0,
+    primaryMonitor: () => 0,
+    toLogical: (_monitor, workspace) => workspace,
+    workspaceCount: () => 4,
+};
+
+function baseMonitorGroup(): {findClosestWorkspace(progress: number): {index(): number}} {
+    return {findClosestWorkspace: progress => ({index: () => progress})};
+}
+
 function monitor(index: number): FakeWorkspaceAnimationMonitor {
     const callbacks = new Map<number, () => void>();
     const container = {x: 0, y: 0};
@@ -78,6 +90,7 @@ function monitor(index: number): FakeWorkspaceAnimationMonitor {
 
     return {
         _container: container,
+        _workspaceGroups: [],
         connect(_signal: 'notify::progress', callback: () => void): number {
             const id = nextId;
             nextId += 1;
@@ -115,7 +128,7 @@ describe('TargetMonitorAnimationScope', () => {
             _switchData: null,
         };
         const originalPrepare = controller._prepareWorkspaceSwitch;
-        const scope = new TargetMonitorAnimationScope(controller);
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
 
         scope.run(1, () => {
             controller._prepareWorkspaceSwitch([0, 1]);
@@ -146,7 +159,7 @@ describe('TargetMonitorAnimationScope', () => {
             },
             _switchData: null,
         };
-        const scope = new TargetMonitorAnimationScope(controller);
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
 
         scope.run(1, () => {
             controller._prepareWorkspaceSwitch([0, 1]);
@@ -173,7 +186,7 @@ describe('TargetMonitorAnimationScope', () => {
             _prepareWorkspaceSwitch: vi.fn(),
             _switchData: {monitors: [primary, secondary]},
         };
-        const scope = new TargetMonitorAnimationScope(controller);
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
 
         scope.show(1);
         primary.progress = 1;
@@ -191,7 +204,7 @@ describe('TargetMonitorAnimationScope', () => {
             _switchData: null,
         };
         const originalPrepare = controller._prepareWorkspaceSwitch;
-        const scope = new TargetMonitorAnimationScope(controller);
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
 
         expect(() => {
             scope.run(0, () => {
@@ -203,7 +216,138 @@ describe('TargetMonitorAnimationScope', () => {
     });
 });
 
+describe('TargetMonitorAnimationScope workspace order', () => {
+    // Monitor 1 shows physical workspace 2 as its logical first workspace.
+    const rotatedOrder: WorkspaceOrder = {
+        activeMonitor: () => 1,
+        primaryMonitor: () => 0,
+        toLogical: (monitorIndex, workspace) =>
+            monitorIndex === 1 ? (workspace + 2) % 4 : workspace,
+        workspaceCount: () => 4,
+    };
+
+    function recordingController(): WorkspaceAnimationController & {
+        prepared: (readonly number[] | undefined)[];
+    } {
+        const prepared: (readonly number[] | undefined)[] = [];
+        return {
+            prepared,
+            _prepareWorkspaceSwitch(workspaceIndices) {
+                prepared.push(workspaceIndices);
+                this._switchData ??= {monitors: []};
+            },
+            _switchData: null,
+        };
+    }
+
+    test('lays a swipe out in the logical order of the monitor under the pointer', () => {
+        const controller = recordingController();
+        const scope = new TargetMonitorAnimationScope(controller, rotatedOrder);
+
+        scope.enable();
+        controller._prepareWorkspaceSwitch();
+
+        expect(controller.prepared).toEqual([[2, 3, 0, 1]]);
+    });
+
+    test('animates a shortcut along the logical order of its target monitor', () => {
+        const controller = recordingController();
+        const scope = new TargetMonitorAnimationScope(controller, rotatedOrder);
+
+        scope.enable();
+        scope.run(1, () => {
+            // GNOME sees physical 3 -> 0 as a move to the left and orders them [0, 3].
+            controller._prepareWorkspaceSwitch([0, 3]);
+        });
+
+        expect(controller.prepared).toEqual([[3, 0]]);
+    });
+
+    test('keeps the primary monitor last so an instant finish cannot outrun the others', () => {
+        const groups = [monitor(0), monitor(1), monitor(2)];
+        const controller: WorkspaceAnimationController = {
+            _prepareWorkspaceSwitch() {
+                this._switchData = {monitors: [...groups]};
+            },
+            _switchData: null,
+        };
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
+
+        scope.enable();
+        controller._prepareWorkspaceSwitch();
+
+        expect(controller._switchData?.monitors.map(group => group.index)).toEqual([1, 2, 0]);
+    });
+
+    test('ignores windows that reach a workspace after its animation group was built', () => {
+        const animated = {get_compositor_private: () => 'animated-actor'};
+        const compensated = {get_compositor_private: () => 'compensated-actor'};
+        const group = {
+            _shouldShowWindow: vi.fn<(window: unknown) => boolean>(() => true),
+            _windowRecords: [{windowActor: 'animated-actor'}],
+        };
+        const animatedMonitor = Object.assign(monitor(0), {_workspaceGroups: [group]});
+        const controller: WorkspaceAnimationController = {
+            _prepareWorkspaceSwitch() {
+                this._switchData = {monitors: [animatedMonitor]};
+            },
+            _switchData: null,
+        };
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
+
+        scope.enable();
+        controller._prepareWorkspaceSwitch();
+
+        expect(group._shouldShowWindow(animated)).toBe(true);
+        expect(group._shouldShowWindow(compensated)).toBe(false);
+    });
+
+    test('restores the native hook when disposed', () => {
+        const controller = recordingController();
+        const nativePrepare = controller._prepareWorkspaceSwitch;
+        const scope = new TargetMonitorAnimationScope(controller, physicalOrder);
+
+        scope.enable();
+        expect(controller._prepareWorkspaceSwitch).not.toBe(nativePrepare);
+        scope.dispose();
+
+        expect(controller._prepareWorkspaceSwitch).toBe(nativePrepare);
+    });
+});
+
 describe('WorkspaceGestureAnimationRouter', () => {
+    test('commits the physical workspace behind a logical swipe target', () => {
+        const tracker = new FakeSwipeTracker();
+        const commit = vi.fn();
+        const controller = {
+            _finishWorkspaceSwitch: vi.fn(),
+            _prepareWorkspaceSwitch: vi.fn(),
+            _swipeTracker: tracker,
+            _switchData: {
+                baseMonitorGroup: {
+                    findClosestWorkspace: (progress: number) => ({
+                        index: () => (progress + 2) % 4,
+                    }),
+                },
+                monitors: [monitor(0), monitor(1)],
+            },
+        };
+        const router = new WorkspaceGestureAnimationRouter(
+            controller,
+            new TargetMonitorAnimationScope(controller, physicalOrder),
+            () => ({commit, finish: vi.fn()}),
+            () => 2
+        );
+
+        router.bind();
+        tracker.begin(1);
+        tracker.end(250, 3);
+
+        expect(commit).toHaveBeenCalledWith(1);
+
+        router.dispose();
+    });
+
     test('keeps the gesture monitor selected until delayed workspace activation', () => {
         const primary = monitor(0);
         const secondary = monitor(1);
@@ -225,11 +369,11 @@ describe('WorkspaceGestureAnimationRouter', () => {
             _finishWorkspaceSwitch: vi.fn(),
             _prepareWorkspaceSwitch: vi.fn(),
             _swipeTracker: tracker,
-            _switchData: {monitors: [primary, secondary]},
+            _switchData: {baseMonitorGroup: baseMonitorGroup(), monitors: [primary, secondary]},
         };
         const router = new WorkspaceGestureAnimationRouter(
             controller,
-            new TargetMonitorAnimationScope(controller),
+            new TargetMonitorAnimationScope(controller, physicalOrder),
             monitorIndex => switcher.beginGestureOn(asMonitorIndex(monitorIndex)),
             () => activeWorkspace
         );
@@ -257,11 +401,11 @@ describe('WorkspaceGestureAnimationRouter', () => {
             _finishWorkspaceSwitch: vi.fn(),
             _prepareWorkspaceSwitch: vi.fn(),
             _swipeTracker: tracker,
-            _switchData: {monitors: [monitor(0), monitor(1)]},
+            _switchData: {baseMonitorGroup: baseMonitorGroup(), monitors: [monitor(0), monitor(1)]},
         };
         const router = new WorkspaceGestureAnimationRouter(
             controller,
-            new TargetMonitorAnimationScope(controller),
+            new TargetMonitorAnimationScope(controller, physicalOrder),
             () => ({commit: vi.fn(), finish: finishTarget}),
             () => 0
         );

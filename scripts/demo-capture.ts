@@ -1,6 +1,7 @@
 import {execFile as execFileCallback, spawn} from 'node:child_process';
+import {strict as assert} from 'node:assert';
 import {once} from 'node:events';
-import {chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
@@ -26,6 +27,9 @@ const COMPLETE_PREFIX = 'demo capture complete:';
 // second, and that rate is what the recording has to live with. Smaller
 // virtual monitors buy frames back; the extension does not care about size.
 const DEMO_MONITOR_SIZE = '960x540';
+// The still is one frame, so the capture rate that forces the recording
+// down to 960x540 does not apply: it is taken at a size worth looking at.
+const STILL_MONITOR_SIZE = '1280x720';
 const GIF_FRAMES_PER_SECOND = 12;
 const GIF_WIDTH = 960;
 const SESSION_TIMEOUT_MILLISECONDS = 180_000;
@@ -83,6 +87,10 @@ export function buildConcatList(frames: readonly CapturedFrame[]): string {
     return `${lines.join('\n')}\n`;
 }
 
+// The session runs in a child started with `--session` alone, so the mode has
+// to travel in the environment the parent already passes it.
+const still = process.argv.includes('--still') || process.env.GIWS_DEMO_MODE === 'still';
+
 async function run(): Promise<void> {
     if (process.argv.includes('--session')) {
         await runCaptureSession();
@@ -105,6 +113,9 @@ async function runParent(): Promise<void> {
         environment.GIWS_AUTOMATION_SCRIPT = runtime.automationScript;
         environment.GIWS_DEMO_FRAMES = frames;
         environment.GIWS_DEMO_WINDOW = runtime.windowScript;
+        if (still) {
+            environment.GIWS_DEMO_MODE = 'still';
+        }
         process.stdout.write(`${await runIsolatedProcess(environment)}\n`);
         await assemble(frames);
     } finally {
@@ -237,7 +248,10 @@ async function runCaptureSession(): Promise<void> {
     }
     const shell = spawn(
         'gnome-shell',
-        buildHeadlessShellArguments(automationScript, DEMO_MONITOR_SIZE),
+        buildHeadlessShellArguments(
+            automationScript,
+            still ? STILL_MONITOR_SIZE : DEMO_MONITOR_SIZE
+        ),
         {
             env: process.env,
             stdio: ['ignore', 'pipe', 'pipe'],
@@ -289,10 +303,20 @@ async function assemble(frames: string): Promise<void> {
     await mkdir(assetsDirectory, {recursive: true});
     await writeFile(list, buildConcatList(manifest.frames), 'utf8');
 
+    const lastFrame = manifest.frames.at(-1);
+
+    assert(lastFrame !== undefined, 'the capture produced no frames');
+
+    if (still) {
+        const screenshot = join(assetsDirectory, 'workspace-behaviour.png');
+
+        await copyFile(join(frames, lastFrame.name), screenshot);
+        process.stdout.write(`screenshot written: ${screenshot}\n`);
+        return;
+    }
     reportCaptureRate(manifest.frames);
 
     const gif = join(assetsDirectory, 'demo.gif');
-    const still = join(assetsDirectory, 'workspace-behaviour.png');
     const filter = [
         `fps=${String(GIF_FRAMES_PER_SECOND)},scale=${String(GIF_WIDTH)}:-1:flags=lanczos,split[a][b]`,
         '[a]palettegen=stats_mode=diff[palette]',
@@ -314,19 +338,7 @@ async function assemble(frames: string): Promise<void> {
         gif,
     ]);
 
-    const lastFrame = manifest.frames.at(-1);
-
-    if (lastFrame !== undefined) {
-        await execFile('ffmpeg', [
-            '-y',
-            '-i',
-            join(frames, lastFrame.name),
-            '-vf',
-            `scale=${String(GIF_WIDTH * 2)}:-1:flags=lanczos`,
-            still,
-        ]);
-    }
-    process.stdout.write(`demo written: ${gif}\ndemo still written: ${still}\n`);
+    process.stdout.write(`demo written: ${gif}\n`);
 }
 
 const entryPoint = process.argv[1];

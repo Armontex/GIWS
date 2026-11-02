@@ -1,7 +1,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
-import type Meta from 'gi://Meta';
+import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
@@ -19,9 +19,17 @@ export const METRICS = {};
 const DISABLED = 2;
 const ENABLED = 1;
 const EXTENSION_UUID = 'giws@armontex';
+// The recording explains the extension over time; the store listing has one
+// frame to do it in. That frame wants the state, not the narration.
+const STILL_MODE = GLib.getenv('GIWS_DEMO_MODE') === 'still';
+// The still is taken on larger monitors, and a window sized for the
+// recording would leave most of each screen empty.
+const WINDOW_SIZE = STILL_MODE ? {height: 470, width: 820} : {height: 340, width: 660};
+// Height of the GNOME title bar the mock windows carry.
+const TITLE_BAR = 46;
 // Below the monitor badge, above the caption: the overlays carry the
 // explanation, and a window centred by GNOME would sit on top of both.
-const WINDOW_TOP = 104;
+const WINDOW_TOP = STILL_MODE ? 122 : 104;
 const SLOW_DOWN_FACTOR = 8;
 const shellGlobal = global as unknown as Shell.Global;
 
@@ -76,20 +84,28 @@ function captureFrame(shooter: Shell.Screenshot, stream: Gio.OutputStream): Prom
     });
 }
 
+async function captureOne(
+    shooter: Shell.Screenshot,
+    recording: Recording,
+    directory: string
+): Promise<void> {
+    const name = `frame-${String(recording.index).padStart(5, '0')}.png`;
+    const file = Gio.File.new_for_path(GLib.build_filenamev([directory, name]));
+    const stream = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
+
+    await captureFrame(shooter, stream);
+    stream.close(null);
+    recording.frames.push({name, time: GLib.get_monotonic_time()});
+    recording.index += 1;
+}
+
 // The loop runs alongside the scenario: every `await` hands the main loop back
 // to GNOME, so the animation it records keeps advancing while a frame encodes.
 async function record(recording: Recording, directory: string): Promise<void> {
     const shooter = new Shell.Screenshot();
 
     while (recording.running) {
-        const name = `frame-${String(recording.index).padStart(5, '0')}.png`;
-        const file = Gio.File.new_for_path(GLib.build_filenamev([directory, name]));
-        const stream = file.replace(null, false, Gio.FileCreateFlags.NONE, null);
-
-        await captureFrame(shooter, stream);
-        stream.close(null);
-        recording.frames.push({name, time: GLib.get_monotonic_time()});
-        recording.index += 1;
+        await captureOne(shooter, recording, directory);
     }
 }
 
@@ -155,7 +171,19 @@ async function createWindow(kind: string, title: string): Promise<Meta.Window> {
     assert(script !== null, 'GIWS_DEMO_WINDOW is not configured');
     GLib.spawn_async(
         null,
-        ['gjs', '-m', script, '--kind', kind, '--title', title],
+        [
+            'gjs',
+            '-m',
+            script,
+            '--kind',
+            kind,
+            '--title',
+            title,
+            '--width',
+            String(WINDOW_SIZE.width),
+            '--height',
+            String(WINDOW_SIZE.height),
+        ],
         null,
         GLib.SpawnFlags.SEARCH_PATH,
         null
@@ -190,19 +218,25 @@ async function place(window: Meta.Window, monitor: number, workspace: number): P
 }
 
 // Left where GNOME puts it, a window lands under the monitor badge or half off
-// the stage, and the first one is still being mapped when the next is created.
-// The demo is about which monitor moves, so every window sits in the same place
-// on its own monitor, and they are placed once everything has settled.
+// the stage, and a window that nearly fills its monitor gets maximised on the
+// way. The demo is about which monitor moves, so the geometry is stated rather
+// than asked for, once everything has settled.
 function centerOnMonitor(window: Meta.Window, monitor: number): void {
     const geometry = Main.layoutManager.monitors[monitor];
 
     assert(geometry !== undefined, `monitor ${String(monitor)} is unavailable`);
-    const frame = window.get_frame_rect();
+    const width = WINDOW_SIZE.width;
+    const height = WINDOW_SIZE.height + TITLE_BAR;
 
-    window.move_frame(
+    if (window.get_maximized() !== 0) {
+        window.unmaximize(Meta.MaximizeFlags.BOTH);
+    }
+    window.move_resize_frame(
         true,
-        Math.round(geometry.x + (geometry.width - frame.width) / 2),
-        geometry.y + WINDOW_TOP
+        Math.round(geometry.x + (geometry.width - width) / 2),
+        geometry.y + WINDOW_TOP,
+        width,
+        height
     );
 }
 
@@ -295,14 +329,18 @@ export async function run(): Promise<void> {
     const rightBadge = addChrome(badgeStyle());
     const caption = addChrome(captionStyle());
 
+    const label = (left: string, right: string): void => {
+        leftBadge.set_text(left);
+        rightBadge.set_text(right);
+        centerOn(leftBadge, leftMonitor.x + leftMonitor.width / 2, leftMonitor.y + 44);
+        centerOn(rightBadge, rightMonitor.x + rightMonitor.width / 2, rightMonitor.y + 44);
+    };
+
     const describe = (left: number, right: number, active: number, text: string): void => {
-        leftBadge.set_text(`Monitor 1 · Workspace ${String(left)}`);
-        rightBadge.set_text(`Monitor 2 · Workspace ${String(right)}`);
+        label(`Monitor 1 · Workspace ${String(left)}`, `Monitor 2 · Workspace ${String(right)}`);
         leftBadge.set_style(active === 0 ? activeBadgeStyle() : badgeStyle());
         rightBadge.set_style(active === 1 ? activeBadgeStyle() : badgeStyle());
         caption.set_text(text);
-        centerOn(leftBadge, leftMonitor.x + leftMonitor.width / 2, leftMonitor.y + 44);
-        centerOn(rightBadge, rightMonitor.x + rightMonitor.width / 2, rightMonitor.y + 44);
         centerOn(
             caption,
             leftMonitor.x + (leftMonitor.width + rightMonitor.width) / 2,
@@ -329,6 +367,33 @@ export async function run(): Promise<void> {
     };
 
     await pointTo(0);
+
+    if (STILL_MODE) {
+        caption.hide();
+        label('Workspace 2', 'Workspace 1');
+        sendWorkspaceShortcut(keyboard, Clutter.KEY_Right);
+        await waitUntil(
+            () => workspaceOf(leftNext) === 1 && workspaceOf(rightCurrent) === 1,
+            'monitor 1 did not switch while monitor 2 stayed'
+        );
+        await Scripting.sleep(1200);
+
+        // GTK settles on its own size after the window is mapped, so the
+        // geometry has to be stated again once nothing else is moving.
+        for (const [window, monitor] of layout) {
+            centerOnMonitor(window, monitor);
+        }
+        await Scripting.sleep(600);
+        await Scripting.waitLeisure();
+
+        const still: Recording = {frames: [], index: 0, running: false};
+
+        await captureOne(new Shell.Screenshot(), still, directory);
+        writeManifest(still, directory);
+        print('demo capture complete: 1 frame');
+        return;
+    }
+
     describe(1, 1, 0, 'Two monitors, both showing workspace 1');
 
     const recording: Recording = {frames: [], index: 0, running: true};

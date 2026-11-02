@@ -1,18 +1,23 @@
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 
 import {retargetWorkspacePopup} from '../../../src/shell/workspace-popup.js';
 
 describe('retargetWorkspacePopup', () => {
-    test('moves the native workspace popup constraint to the requested monitor', () => {
+    test('moves the native workspace popup to the monitor and its logical workspace', () => {
         const constraint = {index: -1};
-        const popup = {get_constraints: () => [constraint]};
+        const display = vi.fn();
+        const popup = {display, get_constraints: () => [constraint]};
 
-        expect(retargetWorkspacePopup(popup, 1)).toBe(true);
+        expect(retargetWorkspacePopup(popup, 1, 2)).toBe(true);
         expect(constraint.index).toBe(1);
+        expect(display).toHaveBeenCalledWith(2);
     });
 
     test('leaves an unavailable popup untouched', () => {
-        expect(retargetWorkspacePopup(null, 1)).toBe(false);
-        expect(retargetWorkspacePopup({get_constraints: () => []}, 1)).toBe(false);
+        const display = vi.fn();
+
+        expect(retargetWorkspacePopup(null, 1, 0)).toBe(false);
+        expect(retargetWorkspacePopup({display, get_constraints: () => []}, 1, 0)).toBe(false);
+        expect(display).not.toHaveBeenCalled();
     });
 });
