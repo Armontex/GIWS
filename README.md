@@ -241,7 +241,8 @@ hand:
    [extensions.gnome.org](https://extensions.gnome.org), where it waits for the
    site's review. It needs the `EGO_USERNAME` and `EGO_PASSWORD` repository
    secrets; without them it only warns, and the archive attached to the GitHub
-   release is the one to submit by hand. Each upload confirms the two
+   release is the one to submit by hand. `publish.yml`, run by hand with a
+   tag, uploads an existing release the same way. Each upload confirms the two
    statements of the site's upload form: the extension may be used under the
    GNOME Shell license terms in a licensing dispute, and the site's staff may
    remove, modify or reassign it.
