@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Upload each release archive to extensions.gnome.org from the release workflow
+  when the `EGO_USERNAME` and `EGO_PASSWORD` secrets are set.
+
 ## [0.1.2] - 2026-11-02
 
 ### Fixed
