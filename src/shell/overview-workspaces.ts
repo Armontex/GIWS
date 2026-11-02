@@ -18,6 +18,14 @@ export interface OverviewAdjustment {
 }
 
 export interface OverviewSwipeTracker {
+    readonly distance: number;
+    readonly _snapPoints: number[];
+    confirmSwipe(
+        distance: number,
+        snapPoints: number[],
+        currentProgress: number,
+        cancelProgress: number
+    ): void;
     connect(
         signal: 'begin',
         callback: (tracker: OverviewSwipeTracker, monitor: number) => void
@@ -44,7 +52,12 @@ interface OverviewWindowPreview {
     set_pivot_point(x: number, y: number): void;
 }
 
-export interface OverviewWorkspaceView {
+interface OverviewActor {
+    connect(signal: 'destroy', callback: () => void): number;
+    disconnect(id: number): void;
+}
+
+export interface OverviewWorkspaceView extends OverviewActor {
     _animating: boolean;
     readonly _gestureActive: boolean;
     readonly _monitorIndex: number;
@@ -58,7 +71,7 @@ export interface OverviewWorkspaceView {
     queue_relayout(): void;
 }
 
-export interface OverviewThumbnailBox {
+export interface OverviewThumbnailBox extends OverviewActor {
     _animatingIndicator: boolean;
     _createThumbnails(): void;
     _destroyThumbnails(): void;
@@ -79,7 +92,7 @@ export interface OverviewWorkspacesDisplay {
     _endTouchGesture(): void;
     readonly _scrollAdjustment: OverviewAdjustment;
     readonly _swipeTracker: OverviewSwipeTracker;
-    readonly _workspacesViews: (OverviewWorkspaceView | SecondaryOverviewWorkspaceView)[];
+    _workspacesViews: (OverviewWorkspaceView | SecondaryOverviewWorkspaceView)[];
     _updateWorkspacesViews(): void;
 }
 
@@ -105,8 +118,11 @@ interface MonitorBinding {
     monitor: number;
     nativeAdjustment: OverviewAdjustment;
     thumbnails: OverviewThumbnailBox;
+    // Null once GNOME destroyed the actor: it must not be touched again.
+    thumbnailsDestroyId: number | null;
     thumbnailMethods: ThumbnailMethods;
     view: OverviewWorkspaceView;
+    viewDestroyId: number | null;
     viewMethods: ViewMethods;
 }
 
@@ -118,9 +134,11 @@ interface GestureBinding {
     endTouchGestureOverride: OverviewWorkspacesDisplay['_endTouchGesture'];
     endId: number | null;
     lease: WorkspaceSwitchLease | null;
-    logicalStart: number;
     monitor: MonitorBinding | null;
-    physicalStart: number;
+    updateWorkspacesViews: OverviewWorkspacesDisplay['_updateWorkspacesViews'];
+    updateWorkspacesViewsOverride: OverviewWorkspacesDisplay['_updateWorkspacesViews'];
+    ease: OverviewAdjustment['ease'];
+    easeOverride: OverviewAdjustment['ease'];
     workspaceStart: number;
 }
 
@@ -137,6 +155,7 @@ export class OverviewWorkspaceAdapter {
     readonly #createAdjustment: AdjustmentFactory;
     readonly #model: MonitorWorkspaces;
     readonly #beginOn: (monitor: number) => WorkspaceSwitchLease;
+    readonly #activate: (workspace: number) => void;
     #bindings: MonitorBinding[] = [];
     #gesture: GestureBinding | null = null;
     #pendingBind: PendingBinding | null = null;
@@ -149,19 +168,20 @@ export class OverviewWorkspaceAdapter {
         beginOn: (monitor: number) => WorkspaceSwitchLease = () => ({
             commit: () => undefined,
             finish: () => undefined,
-        })
+        }),
+        activate: (workspace: number) => void = () => undefined
     ) {
         this.#model = model;
         this.#activeWorkspace = activeWorkspace;
         this.#createAdjustment = createAdjustment;
         this.#beginOn = beginOn;
+        this.#activate = activate;
     }
 
     bind(display: OverviewWorkspacesDisplay, primaryThumbnails: OverviewThumbnailBox): void {
         if (this.#gesture?.monitor !== null && this.#gesture?.monitor !== undefined) {
             this.#pendingBind = {display, primaryThumbnails};
             this.#unbindRequested = true;
-            this.#disconnectGestureSignals(this.#gesture);
             this.#unbindViews();
             return;
         }
@@ -176,7 +196,7 @@ export class OverviewWorkspaceAdapter {
         });
 
         this.sync(false);
-        this.#bindGesture(display);
+        this.#bindGesture(display, primaryThumbnails);
     }
 
     sync(animate = true): void {
@@ -200,7 +220,6 @@ export class OverviewWorkspaceAdapter {
         this.#pendingBind = null;
         if (this.#gesture?.monitor !== null && this.#gesture?.monitor !== undefined) {
             this.#unbindRequested = true;
-            this.#disconnectGestureSignals(this.#gesture);
             this.#unbindViews();
             return;
         }
@@ -221,37 +240,63 @@ export class OverviewWorkspaceAdapter {
 
     #unbindViews(): void {
         for (const binding of this.#bindings) {
-            const {adjustment, nativeAdjustment, thumbnails, view} = binding;
+            this.#restore(binding);
+        }
 
+        this.#bindings = [];
+    }
+
+    // GNOME destroys the views when the Overview hides or rebuilds them, which may happen
+    // while they are still bound; a destroyed actor can't be reconnected, only forgotten.
+    #forget(binding: MonitorBinding): void {
+        this.#bindings = this.#bindings.filter(candidate => candidate !== binding);
+        this.#restore(binding);
+    }
+
+    #restore(binding: MonitorBinding): void {
+        const {adjustment, nativeAdjustment, thumbnails, view} = binding;
+
+        if (binding.viewDestroyId !== null) {
+            view.disconnect(binding.viewDestroyId);
+            binding.viewDestroyId = null;
             adjustment.disconnectObject(view);
-            adjustment.disconnectObject(thumbnails);
             view._scrollAdjustment = nativeAdjustment;
-            thumbnails._scrollAdjustment = nativeAdjustment;
             view._scrollToActive = binding.viewMethods.scrollToActive;
             view._updateVisibility = binding.viewMethods.updateVisibility;
             view.getActiveWorkspace = binding.viewMethods.getActiveWorkspace;
-            thumbnails._updateIndicator = binding.thumbnailMethods.updateIndicator;
             this.#orderPhysical(view._workspaces);
-            this.#orderPhysical(thumbnails._thumbnails);
             nativeAdjustment.connectObject(
                 'notify::value',
                 view._onScrollAdjustmentChanged.bind(view),
                 view
             );
+        }
+
+        if (binding.thumbnailsDestroyId !== null) {
+            thumbnails.disconnect(binding.thumbnailsDestroyId);
+            binding.thumbnailsDestroyId = null;
+            adjustment.disconnectObject(thumbnails);
+            thumbnails._scrollAdjustment = nativeAdjustment;
+            thumbnails._updateIndicator = binding.thumbnailMethods.updateIndicator;
+            this.#orderPhysical(thumbnails._thumbnails);
             nativeAdjustment.connectObject(
                 'notify::value',
                 thumbnails._updateIndicator.bind(thumbnails),
                 thumbnails
             );
         }
-
-        this.#bindings = [];
     }
 
-    #bindGesture(display: OverviewWorkspacesDisplay): void {
-        // Preserve the exact GNOME method so unbinding restores the native Overview object.
-        // eslint-disable-next-line @typescript-eslint/unbound-method
+    #bindGesture(
+        display: OverviewWorkspacesDisplay,
+        primaryThumbnails: OverviewThumbnailBox
+    ): void {
+        // Preserve the exact GNOME methods so unbinding restores the native Overview object.
+        /* eslint-disable @typescript-eslint/unbound-method */
         const endTouchGesture = display._endTouchGesture;
+        const updateWorkspacesViews = display._updateWorkspacesViews;
+        const ease = display._scrollAdjustment.ease;
+        /* eslint-enable @typescript-eslint/unbound-method */
         const gesture: GestureBinding = {
             adjustmentId: null,
             beginId: null,
@@ -260,11 +305,23 @@ export class OverviewWorkspaceAdapter {
             endTouchGestureOverride: endTouchGesture,
             endId: null,
             lease: null,
-            logicalStart: 0,
             monitor: null,
-            physicalStart: 0,
+            updateWorkspacesViews,
+            updateWorkspacesViewsOverride: updateWorkspacesViews,
+            ease,
+            easeOverride: ease,
             workspaceStart: 0,
         };
+        // A vertical swipe in the open Overview re-runs prepareToEnterOverview: GNOME replaces
+        // the views, and no 'showing' follows to bind the new ones.
+        const updateWorkspacesViewsOverride = (): void => {
+            updateWorkspacesViews.call(display);
+            if (!this.#unbindRequested) {
+                this.bind(display, primaryThumbnails);
+            }
+        };
+        gesture.updateWorkspacesViewsOverride = updateWorkspacesViewsOverride;
+        display._updateWorkspacesViews = updateWorkspacesViewsOverride;
         const endTouchGestureOverride = (): void => {
             try {
                 endTouchGesture.call(display);
@@ -274,7 +331,19 @@ export class OverviewWorkspaceAdapter {
         };
         gesture.endTouchGestureOverride = endTouchGestureOverride;
         display._endTouchGesture = endTouchGestureOverride;
-        gesture.beginId = display._swipeTracker.connect('begin', (_tracker, monitor) => {
+        // GNOME's end handler eases to the physical workspace endProgress and activates it. An
+        // interrupted swipe has zero duration, which completes inside that call: skip it.
+        const easeOverride: OverviewAdjustment['ease'] = (value, options) => {
+            if (gesture.monitor === null) {
+                ease.call(display._scrollAdjustment, value, options);
+            }
+        };
+        gesture.easeOverride = easeOverride;
+        display._scrollAdjustment.ease = easeOverride;
+        // GNOME's handlers run first and drive the swipe in physical workspaces. We re-confirm
+        // it in the logical workspaces of the monitor it began on, so its progress, bounds and
+        // end point are all logical, and translate only the workspace finally activated.
+        gesture.beginId = display._swipeTracker.connect('begin', (tracker, monitor) => {
             this.#finishGesture();
             const binding = this.#bindings.find(candidate => candidate.monitor === monitor);
             if (binding === undefined) {
@@ -282,29 +351,46 @@ export class OverviewWorkspaceAdapter {
             }
 
             gesture.monitor = binding;
-            gesture.physicalStart = display._scrollAdjustment.value;
-            gesture.logicalStart = binding.adjustment.value;
             gesture.workspaceStart = this.#activeWorkspace();
             gesture.lease = this.#beginOn(monitor);
+            const progress = binding.adjustment.value;
+            display._scrollAdjustment.value = progress;
+            tracker.confirmSwipe(
+                tracker.distance,
+                tracker._snapPoints,
+                progress,
+                Math.round(progress)
+            );
         });
-        gesture.endId = display._swipeTracker.connect('end', (_tracker, _duration, endProgress) => {
-            if (gesture.lease !== null && endProgress !== gesture.workspaceStart) {
-                gesture.lease.commit(endProgress);
-            }
-        });
-        gesture.adjustmentId = display._scrollAdjustment.connect('notify::value', () => {
+        gesture.endId = display._swipeTracker.connect('end', (_tracker, duration, endProgress) => {
             const binding = gesture.monitor;
             if (binding === null) {
                 return;
             }
 
-            const progress =
-                gesture.logicalStart + (display._scrollAdjustment.value - gesture.physicalStart);
-            const maximum = binding.adjustment.upper - binding.adjustment.page_size;
-            binding.adjustment.value = Math.min(
-                maximum,
-                Math.max(binding.adjustment.lower, progress)
-            );
+            const workspace = this.#model.toPhysical(asMonitorIndex(binding.monitor), endProgress);
+            if (gesture.lease !== null && workspace !== gesture.workspaceStart) {
+                gesture.lease.commit(workspace);
+            }
+
+            // ponytail: default easing instead of GNOME's EASE_OUT_CUBIC; pass the mode in if
+            // the difference ever shows.
+            ease.call(display._scrollAdjustment, endProgress, {
+                duration,
+                onComplete: () => {
+                    if (workspace !== this.#activeWorkspace()) {
+                        this.#activate(workspace);
+                    }
+                    display._endTouchGesture();
+                    // The views get this adjustment back when the Overview closes.
+                    display._scrollAdjustment.value = this.#activeWorkspace();
+                },
+            });
+        });
+        gesture.adjustmentId = display._scrollAdjustment.connect('notify::value', () => {
+            if (gesture.monitor !== null) {
+                gesture.monitor.adjustment.value = display._scrollAdjustment.value;
+            }
         });
         this.#gesture = gesture;
     }
@@ -318,6 +404,12 @@ export class OverviewWorkspaceAdapter {
         this.#disconnectGestureSignals(gesture);
         if (gesture.display._endTouchGesture === gesture.endTouchGestureOverride) {
             gesture.display._endTouchGesture = gesture.endTouchGesture;
+        }
+        if (gesture.display._updateWorkspacesViews === gesture.updateWorkspacesViewsOverride) {
+            gesture.display._updateWorkspacesViews = gesture.updateWorkspacesViews;
+        }
+        if (gesture.display._scrollAdjustment.ease === gesture.easeOverride) {
+            gesture.display._scrollAdjustment.ease = gesture.ease;
         }
         gesture.lease?.finish();
         this.#gesture = null;
@@ -360,6 +452,9 @@ export class OverviewWorkspaceAdapter {
     }
 
     #bindMonitor(view: OverviewWorkspaceView, thumbnails: OverviewThumbnailBox): MonitorBinding {
+        // Secondary thumbnails are created by their own 'showing' handler, which runs after
+        // ours and would fill them in physical order; creating them first makes it a no-op.
+        thumbnails._createThumbnails();
         const monitor = view._monitorIndex;
         const nativeAdjustment = view._scrollAdjustment;
         const adjustment = this.#createAdjustment(
@@ -373,14 +468,24 @@ export class OverviewWorkspaceAdapter {
             monitor,
             nativeAdjustment,
             thumbnails,
+            thumbnailsDestroyId: null,
             thumbnailMethods: {updateIndicator: thumbnails._updateIndicator.bind(thumbnails)},
             view,
+            viewDestroyId: null,
             viewMethods: {
                 getActiveWorkspace: view.getActiveWorkspace.bind(view),
                 scrollToActive: view._scrollToActive.bind(view),
                 updateVisibility: view._updateVisibility.bind(view),
             },
         };
+        binding.viewDestroyId = view.connect('destroy', () => {
+            binding.viewDestroyId = null;
+            this.#forget(binding);
+        });
+        binding.thumbnailsDestroyId = thumbnails.connect('destroy', () => {
+            binding.thumbnailsDestroyId = null;
+            this.#forget(binding);
+        });
 
         nativeAdjustment.disconnectObject(view);
         nativeAdjustment.disconnectObject(thumbnails);

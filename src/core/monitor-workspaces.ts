@@ -57,6 +57,14 @@ export class MonitorWorkspaces {
         return this.#wrap(logicalWorkspace + this.#offset(monitor));
     }
 
+    neighbor(monitor: MonitorIndex, physicalWorkspace: number, delta: -1 | 1): number {
+        const logical = this.toLogical(monitor, physicalWorkspace) + delta;
+
+        return logical < 0 || logical >= this.#workspaceCount
+            ? physicalWorkspace
+            : this.toPhysical(monitor, logical);
+    }
+
     #offset(monitor: MonitorIndex): number {
         const offset = this.#offsets[monitor];
 

@@ -39,6 +39,18 @@ describe('MonitorWorkspaces', () => {
         expect(workspaces.toPhysical(asMonitorIndex(1), 0)).toBe(3);
     });
 
+    test('finds neighbors within the logical workspaces of a monitor', () => {
+        const workspaces = new MonitorWorkspaces(2, 4);
+        workspaces.completeSwitch(asMonitorIndex(0), 0, 3);
+
+        // Monitor 1 shows its logical first workspace on physical workspace 3.
+        expect(workspaces.neighbor(asMonitorIndex(1), 3, 1)).toBe(0);
+        expect(workspaces.neighbor(asMonitorIndex(1), 3, -1)).toBe(3);
+        // Monitor 0 is on its logical last workspace.
+        expect(workspaces.neighbor(asMonitorIndex(0), 3, 1)).toBe(3);
+        expect(workspaces.neighbor(asMonitorIndex(0), 3, -1)).toBe(2);
+    });
+
     test('resizes safely when monitors or static workspaces change at runtime', () => {
         const workspaces = new MonitorWorkspaces(2, 4);
         workspaces.completeSwitch(asMonitorIndex(0), 0, 3);

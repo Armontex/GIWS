@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-02
+
+### Fixed
+
+- Keep the Overview bound to the views GNOME rebuilds while it stays open, so a
+  vertical swipe no longer leaves every monitor scrolling together, and let go
+  of views GNOME has destroyed.
+- Order secondary-monitor thumbnails by that monitor's own workspaces, so the
+  current-workspace frame sits on the right thumbnail.
+- Bound Overview and desktop swipes, keyboard shortcuts, scrolling and the
+  workspace popup by the logical workspaces of the monitor they act on, instead
+  of the physical order.
+- Stop an interrupted Overview swipe from activating its logical position as a
+  physical workspace.
+- Forget the target of a swipe that a new swipe took over, so it no longer
+  claims a later switch on another monitor and leaves that monitor's windows
+  behind.
+- Finish workspace animations without touching groups or window clones that
+  GNOME has already disposed.
+
 ## [0.1.1] - 2026-09-21
 
 ### Fixed
