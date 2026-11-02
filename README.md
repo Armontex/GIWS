@@ -237,15 +237,19 @@ hand:
    over files that never diverged. `main` allows nothing else.
 4. `release` tags the merged `main` commit, builds the extension package from
    the repository and publishes a GitHub release with the archive attached.
-5. `backmerge` returns `main` to `develop` and merges itself once the checks
+5. `publish`, the last job of `release`, uploads the same archive to
+   [extensions.gnome.org](https://extensions.gnome.org), where it waits for the
+   site's review. It needs the `EGO_USERNAME` and `EGO_PASSWORD` repository
+   secrets; without them it only warns, and the archive attached to the GitHub
+   release is the one to submit by hand. Each upload confirms the two
+   statements of the site's upload form: the extension may be used under the
+   GNOME Shell license terms in a licensing dispute, and the site's staff may
+   remove, modify or reassign it.
+6. `backmerge` returns `main` to `develop` and merges itself once the checks
    agree, so the branches never drift.
 
 A merge into `main` that leaves the version alone releases nothing: the version
 in the manifest, without a tag, is the only release marker.
-
-Publishing to [extensions.gnome.org](https://extensions.gnome.org) stays manual
-— the site has no upload API. The archive attached to the GitHub release is the
-one to submit.
 
 ### Project structure
 

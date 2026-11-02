@@ -158,3 +158,63 @@ jobs:
           else
             gh release create "$TAG" dist-release/* --title "$TAG" --generate-notes
           fi
+
+  publish:
+    name: publish
+    needs: [announce]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Nothing here writes to the repository: the job only hands the archive on.
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: giws-release
+          path: dist-release
+
+      # extensions.gnome.org takes the same archive through its API, the way
+      # `gnome-extensions upload` does: the login returns a token, and the upload
+      # carries the two statements the site's upload form asks to tick. Review on
+      # the site still decides when the version reaches users. It runs after the
+      # GitHub release, so a refused upload never holds that release back.
+      - name: Upload to extensions.gnome.org
+        env:
+          EGO_USERNAME: ${{ secrets.EGO_USERNAME }}
+          EGO_PASSWORD: ${{ secrets.EGO_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$EGO_USERNAME" || -z "$EGO_PASSWORD" ]]; then
+            echo "::warning::EGO_USERNAME or EGO_PASSWORD is not set; upload the release archive to extensions.gnome.org by hand"
+            exit 0
+          fi
+          umask 077
+          # The password goes through stdin and the token through a file, so
+          # neither shows up in the process list.
+          if ! login="$(jq -n --arg login "$EGO_USERNAME" --arg password "$EGO_PASSWORD" \
+              '{login: $login, password: $password}' \
+            | curl -sS --fail-with-body -X POST \
+              -H 'Content-Type: application/json' -H 'Accept: application/json' \
+              --data @- https://extensions.gnome.org/api/v1/accounts/login/)"; then
+            echo "::error::extensions.gnome.org refused the login: $(jq -r '.detail // .' <<< "$login" 2>/dev/null)"
+            exit 1
+          fi
+          token="$(jq -r '.token.token // empty' <<< "$login")"
+          if [[ -z "$token" ]]; then
+            echo "::error::extensions.gnome.org returned no token: $(jq -r '.token.error // .detail // "unknown reason"' <<< "$login")"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          printf 'Authorization: Token %s\n' "$token" > "$RUNNER_TEMP/ego-auth"
+
+          status="$(curl -sS -o response.json -w '%{http_code}' -X POST \
+            -H @"$RUNNER_TEMP/ego-auth" -H 'Accept: application/json' \
+            -F 'source=@dist-release/giws@armontex.shell-extension.zip' \
+            -F shell_license_compliant=true \
+            -F tos_compliant=true \
+            https://extensions.gnome.org/api/v1/extensions)"
+          if [[ "$status" != 201 ]]; then
+            echo "::error::extensions.gnome.org refused the upload with HTTP $status"
+            cat response.json
+            exit 1
+          fi
+          echo "Uploaded to extensions.gnome.org; the version now waits for review."
