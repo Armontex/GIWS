@@ -188,6 +188,47 @@ describe('WorkspaceSwitcher', () => {
         expect(state.apply.mock.calls).toEqual([[[{id: 'primary', workspace: 1}]]]);
     });
 
+    test('forgets the target of a gesture that a new gesture took over', () => {
+        const state = environment({
+            activeMonitor: 1,
+            windows: [
+                {id: 'first', monitor: asMonitorIndex(0), workspace: 0},
+                {id: 'second', monitor: asMonitorIndex(1), workspace: 0},
+            ],
+        });
+        const switcher = new WorkspaceSwitcher(state.environment);
+
+        const takenOver = switcher.beginGestureOn(asMonitorIndex(0));
+        takenOver.commit(1);
+        takenOver.finish();
+        switcher.beginGestureOn(asMonitorIndex(0)).finish();
+
+        state.setActiveWorkspace(1);
+        switcher.workspaceChanged();
+
+        expect(state.apply.mock.calls).toEqual([[[{id: 'first', workspace: 1}]]]);
+    });
+
+    test('keeps the target of a committed gesture until its activation arrives', () => {
+        const state = environment({
+            activeMonitor: 1,
+            windows: [
+                {id: 'first', monitor: asMonitorIndex(0), workspace: 0},
+                {id: 'second', monitor: asMonitorIndex(1), workspace: 0},
+            ],
+        });
+        const switcher = new WorkspaceSwitcher(state.environment);
+
+        const gesture = switcher.beginGestureOn(asMonitorIndex(0));
+        gesture.commit(1);
+        gesture.finish();
+
+        state.setActiveWorkspace(1);
+        switcher.workspaceChanged();
+
+        expect(state.apply.mock.calls).toEqual([[[{id: 'second', workspace: 1}]]]);
+    });
+
     test('refreshes logical workspace dimensions after monitor changes', () => {
         const state = environment();
         const switcher = new WorkspaceSwitcher(state.environment);

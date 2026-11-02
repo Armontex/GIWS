@@ -77,6 +77,9 @@ class FakeAdjustment implements OverviewAdjustment {
 }
 
 class FakeSwipeTracker {
+    readonly confirmations: [number, number[], number, number][] = [];
+    readonly distance = 1000;
+    readonly _snapPoints = [0, 1, 2, 3];
     readonly #beginCallbacks = new Map<
         number,
         (tracker: FakeSwipeTracker, monitor: number) => void
@@ -119,6 +122,15 @@ class FakeSwipeTracker {
         this.#endCallbacks.delete(id);
     }
 
+    confirmSwipe(
+        distance: number,
+        snapPoints: number[],
+        currentProgress: number,
+        cancelProgress: number
+    ): void {
+        this.confirmations.push([distance, snapPoints, currentProgress, cancelProgress]);
+    }
+
     begin(monitor: number): void {
         for (const callback of this.#beginCallbacks.values()) {
             callback(this, monitor);
@@ -132,6 +144,35 @@ class FakeSwipeTracker {
     }
 }
 
+const destroyCallbacks = new WeakMap<object, Map<number, () => void>>();
+let nextDestroyId = 1;
+
+function destroyable(): {
+    connect(signal: 'destroy', callback: () => void): number;
+    disconnect(id: number): void;
+} {
+    const callbacks = new Map<number, () => void>();
+    const actor = {
+        connect: (_signal: 'destroy', callback: () => void): number => {
+            const id = nextDestroyId;
+            nextDestroyId += 1;
+            callbacks.set(id, callback);
+            return id;
+        },
+        disconnect: (id: number): void => {
+            callbacks.delete(id);
+        },
+    };
+    destroyCallbacks.set(actor, callbacks);
+    return actor;
+}
+
+function destroy(actor: object): void {
+    for (const callback of destroyCallbacks.get(actor)?.values() ?? []) {
+        callback();
+    }
+}
+
 function actors(): {metaWorkspace: {index(): number}; show(): void; visible: boolean}[] {
     return Array.from({length: 4}, (_, index) => ({
         metaWorkspace: {index: () => index},
@@ -141,7 +182,7 @@ function actors(): {metaWorkspace: {index(): number}; show(): void; visible: boo
 }
 
 function view(monitor: number, adjustment: OverviewAdjustment): OverviewWorkspaceView {
-    return {
+    return Object.assign(destroyable(), {
         _animating: false,
         _gestureActive: false,
         _monitorIndex: monitor,
@@ -153,11 +194,11 @@ function view(monitor: number, adjustment: OverviewAdjustment): OverviewWorkspac
         _workspaces: actors(),
         getActiveWorkspace: vi.fn(),
         queue_relayout: vi.fn(),
-    };
+    });
 }
 
 function thumbnails(adjustment: OverviewAdjustment): OverviewThumbnailBox {
-    return {
+    return Object.assign(destroyable(), {
         _animatingIndicator: false,
         _createThumbnails: vi.fn(),
         _destroyThumbnails: vi.fn(),
@@ -166,7 +207,7 @@ function thumbnails(adjustment: OverviewAdjustment): OverviewThumbnailBox {
         _thumbnails: actors(),
         _updateIndicator: vi.fn(),
         queue_relayout: vi.fn(),
-    };
+    });
 }
 
 function display(
@@ -332,6 +373,100 @@ describe('OverviewWorkspaceAdapter', () => {
         ]);
     });
 
+    test('orders secondary thumbnails that GNOME only creates once the Overview shows', () => {
+        const shared = new FakeAdjustment(0);
+        const secondaryThumbnails = thumbnails(shared);
+        const physical = secondaryThumbnails._thumbnails;
+        secondaryThumbnails._thumbnails = [];
+        secondaryThumbnails._createThumbnails = () => {
+            if (secondaryThumbnails._thumbnails.length === 0) {
+                secondaryThumbnails._thumbnails = [...physical];
+            }
+        };
+        const model = new MonitorWorkspaces(2, 4);
+        const adapter = new OverviewWorkspaceAdapter(
+            model,
+            () => 1,
+            value => new FakeAdjustment(value)
+        );
+
+        model.completeSwitch(asMonitorIndex(0), 0, 1);
+        adapter.bind(
+            display(shared, [
+                view(0, shared),
+                {
+                    _monitorIndex: 1,
+                    _thumbnails: secondaryThumbnails,
+                    _workspacesView: view(1, shared),
+                },
+            ]),
+            thumbnails(shared)
+        );
+        secondaryThumbnails._createThumbnails();
+
+        expect(secondaryThumbnails._thumbnails.map(actor => actor.metaWorkspace.index())).toEqual([
+            1, 2, 3, 0,
+        ]);
+    });
+
+    test('binds the views GNOME rebuilds while the Overview stays open', () => {
+        const shared = new FakeAdjustment(0);
+        const staleView = view(0, shared);
+        const freshView = view(0, shared);
+        const overview = display(shared, [staleView]);
+        const rebuildViews = vi.fn(() => {
+            destroy(staleView);
+            overview._workspacesViews = [freshView];
+        });
+        overview._updateWorkspacesViews = rebuildViews;
+        const adapter = new OverviewWorkspaceAdapter(
+            new MonitorWorkspaces(1, 4),
+            () => 0,
+            value => new FakeAdjustment(value)
+        );
+
+        adapter.bind(overview, thumbnails(shared));
+        overview._updateWorkspacesViews();
+
+        expect(rebuildViews).toHaveBeenCalledOnce();
+        expect(freshView._scrollAdjustment).not.toBe(shared);
+
+        adapter.unbind();
+        overview._updateWorkspacesViews();
+
+        expect(rebuildViews).toHaveBeenCalledTimes(2);
+        expect(freshView._scrollAdjustment).toBe(shared);
+    });
+
+    test('lets go of Overview views that GNOME destroyed while they were bound', () => {
+        const shared = new FakeAdjustment(0);
+        const updateWorkspacesState = vi.fn();
+        const onScrollAdjustmentChanged = vi.fn();
+        const staleView = Object.assign(view(0, shared), {
+            _onScrollAdjustmentChanged: onScrollAdjustmentChanged,
+            _updateWorkspacesState: updateWorkspacesState,
+        });
+        const primaryThumbnails = thumbnails(shared);
+        const adapter = new OverviewWorkspaceAdapter(
+            new MonitorWorkspaces(1, 4),
+            () => 0,
+            value => new FakeAdjustment(value)
+        );
+
+        adapter.bind(display(shared, [staleView]), primaryThumbnails);
+        destroy(staleView);
+
+        expect(primaryThumbnails._scrollAdjustment).toBe(shared);
+
+        updateWorkspacesState.mockClear();
+        adapter.sync();
+        adapter.bind(display(shared, [view(0, shared)]), primaryThumbnails);
+        shared.setValue(1);
+
+        expect(updateWorkspacesState).not.toHaveBeenCalled();
+        expect(onScrollAdjustmentChanged).not.toHaveBeenCalled();
+    });
+
     test('routes touchpad progress only to the monitor where the gesture began', () => {
         const shared = new FakeAdjustment(0);
         const tracker = new FakeSwipeTracker();
@@ -375,6 +510,109 @@ describe('OverviewWorkspaceAdapter', () => {
         overview._endTouchGesture();
         expect(finishTarget).toHaveBeenCalledOnce();
         expect(secondaryView._scrollAdjustment).toBe(shared);
+    });
+
+    test('bounds an Overview swipe by the workspaces of the monitor it began on', () => {
+        const shared = new FakeAdjustment(2);
+        const tracker = new FakeSwipeTracker();
+        const model = new MonitorWorkspaces(2, 4);
+        const commit = vi.fn();
+        const activate = vi.fn();
+        const adapter = new OverviewWorkspaceAdapter(
+            model,
+            () => 2,
+            value => new FakeAdjustment(value),
+            () => ({commit, finish: vi.fn()}),
+            activate
+        );
+
+        // Monitor 1 stayed on its first workspace while monitor 0 moved two to the right.
+        model.completeSwitch(asMonitorIndex(0), 0, 2);
+        adapter.bind(
+            display(
+                shared,
+                [
+                    view(0, shared),
+                    {
+                        _monitorIndex: 1,
+                        _thumbnails: thumbnails(shared),
+                        _workspacesView: view(1, shared),
+                    },
+                ],
+                tracker
+            ),
+            thumbnails(shared)
+        );
+        tracker.begin(1);
+
+        expect(tracker.confirmations).toEqual([[1000, [0, 1, 2, 3], 0, 0]]);
+        expect(shared.value).toBe(0);
+
+        tracker.end(250, 3);
+
+        expect(commit).toHaveBeenCalledWith(1);
+        expect(activate).toHaveBeenCalledWith(1);
+        // The fake workspace never activates, so the swipe settles on the active one.
+        expect(shared.value).toBe(2);
+    });
+
+    test('keeps GNOME from activating the logical end of a swipe as a physical workspace', () => {
+        const shared = new FakeAdjustment(2);
+        const tracker = new FakeSwipeTracker();
+        const model = new MonitorWorkspaces(1, 4);
+        const nativeActivate = vi.fn();
+        const activate = vi.fn();
+        const adapter = new OverviewWorkspaceAdapter(
+            model,
+            () => 2,
+            value => new FakeAdjustment(value),
+            () => ({commit: vi.fn(), finish: vi.fn()}),
+            activate
+        );
+
+        // GNOME's handler connects first, and a zero-length ease completes inside the call.
+        tracker.connect('end', (_tracker, _duration, endProgress) => {
+            shared.ease(endProgress, {
+                onComplete: () => {
+                    nativeActivate(endProgress);
+                },
+            });
+        });
+        model.completeSwitch(asMonitorIndex(1), 0, 2);
+        adapter.bind(display(shared, [view(0, shared)], tracker), thumbnails(shared));
+        tracker.begin(0);
+        tracker.end(0, 0);
+
+        expect(nativeActivate).not.toHaveBeenCalled();
+        expect(activate).not.toHaveBeenCalled();
+        expect(shared.value).toBe(2);
+
+        adapter.unbind();
+        tracker.end(0, 1);
+
+        expect(nativeActivate).toHaveBeenCalledWith(1);
+    });
+
+    test('still activates the logical swipe target when the Overview unbinds mid-gesture', () => {
+        const shared = new FakeAdjustment(2);
+        const tracker = new FakeSwipeTracker();
+        const model = new MonitorWorkspaces(1, 4);
+        const activate = vi.fn();
+        const adapter = new OverviewWorkspaceAdapter(
+            model,
+            () => 2,
+            value => new FakeAdjustment(value),
+            () => ({commit: vi.fn(), finish: vi.fn()}),
+            activate
+        );
+
+        model.completeSwitch(asMonitorIndex(1), 0, 2);
+        adapter.bind(display(shared, [view(0, shared)], tracker), thumbnails(shared));
+        tracker.begin(0);
+        adapter.unbind();
+        tracker.end(250, 3);
+
+        expect(activate).toHaveBeenCalledWith(1);
     });
 
     test('keeps the Overview gesture target through delayed workspace activation', () => {

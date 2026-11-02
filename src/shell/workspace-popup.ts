@@ -3,10 +3,15 @@ export interface WorkspacePopupConstraint {
 }
 
 export interface WorkspacePopup {
+    display(activeWorkspaceIndex: number): void;
     get_constraints(): WorkspacePopupConstraint[];
 }
 
-export function retargetWorkspacePopup(popup: WorkspacePopup | null, monitor: number): boolean {
+export function retargetWorkspacePopup(
+    popup: WorkspacePopup | null,
+    monitor: number,
+    logicalWorkspace: number
+): boolean {
     const constraint = popup
         ?.get_constraints()
         .find(candidate => typeof candidate.index === 'number');
@@ -16,5 +21,6 @@ export function retargetWorkspacePopup(popup: WorkspacePopup | null, monitor: nu
     }
 
     constraint.index = monitor;
+    popup?.display(logicalWorkspace);
     return true;
 }

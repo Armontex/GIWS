@@ -17,7 +17,10 @@ interface WorkspaceAnimationMonitor {
 }
 
 interface WorkspaceAnimationController {
-    _switchData: {monitors: WorkspaceAnimationMonitor[]} | null;
+    _switchData: {
+        baseMonitorGroup?: {readonly progress: number};
+        monitors: WorkspaceAnimationMonitor[];
+    } | null;
     readonly _swipeTracker: SwipeTracker;
     animateSwitch: (
         this: WorkspaceAnimationController,
@@ -48,6 +51,7 @@ interface OverviewFacade {
     readonly _overview: {
         readonly controls: {
             readonly _workspacesDisplay: OverviewWorkspacesDisplay;
+            prepareToEnterOverview(): void;
         };
     };
     readonly visible: boolean;
@@ -73,6 +77,7 @@ interface SecondaryOverviewWorkspaceView {
 }
 
 interface OverviewWorkspacesDisplay {
+    readonly _scrollAdjustment: OverviewAdjustment;
     readonly _swipeTracker: SwipeTracker;
     readonly _workspacesViews: (OverviewWorkspaceView | SecondaryOverviewWorkspaceView)[];
 }
@@ -81,6 +86,7 @@ interface WorkspaceWindowManager {
     _shouldAnimate: () => boolean;
     _workspaceAnimation: WorkspaceAnimationController;
     _workspaceSwitcherPopup: {
+        readonly _activeWorkspaceIndex: number;
         get_constraints(): {index?: number}[];
     } | null;
 }
@@ -491,8 +497,9 @@ export async function run(): Promise<void> {
     );
     await Scripting.sleep(200);
 
+    // Overview swipes run along the logical workspaces of their monitor.
     overviewDisplay._swipeTracker.emit('begin', 1);
-    overviewDisplay._swipeTracker.emit('update', 2);
+    overviewDisplay._swipeTracker.emit('update', 1);
     assert(
         primaryOverview._scrollAdjustment.value <= 1.01,
         'primary overview followed the secondary touchpad gesture'
@@ -502,7 +509,7 @@ export async function run(): Promise<void> {
         'secondary gesture did not advance'
     );
 
-    overviewDisplay._swipeTracker.emit('end', 250, 2);
+    overviewDisplay._swipeTracker.emit('end', 250, 1);
     pointer.notify_absolute_motion(
         Clutter.get_current_event_time() * 1000,
         primaryMonitor.x + primaryMonitor.width / 2,
@@ -522,8 +529,116 @@ export async function run(): Promise<void> {
         'overview touchpad gesture lost its target monitor'
     );
 
+    // A vertical swipe in the open Overview makes GNOME replace the views without 'showing'.
+    shellMain.overview._overview.controls.prepareToEnterOverview();
+    const rebuiltOverview = overviewWorkspaceView(overviewDisplay, 1);
+    assert(rebuiltOverview !== secondaryOverview, 'GNOME did not rebuild the overview views');
+    assert(
+        rebuiltOverview._scrollAdjustment !== overviewDisplay._scrollAdjustment,
+        'rebuilt overview views were left scrolling together'
+    );
+
+    // Closing the Overview mid-swipe interrupts it with a zero-length end at its logical start.
+    overviewDisplay._swipeTracker.emit('begin', 0);
+    overviewDisplay._swipeTracker.emit('update', 2);
     shellMain.overview.hide();
+    assert(
+        shellGlobal.workspace_manager.get_active_workspace_index() === 2,
+        'interrupted overview swipe activated its logical start as a physical workspace'
+    );
     await waitUntil(() => !shellMain.overview.visible, 'overview did not close');
+    await waitUntil(
+        () => shellGlobal.display.get_current_monitor() === 0,
+        'pointer left the primary monitor'
+    );
+
+    // Both monitors are on logical workspace 1, shifted by one against the physical order, so
+    // the primary monitor's logical end lies beyond the physical one.
+    const switchPrimary = async (key: number, workspace: number): Promise<void> => {
+        sendWorkspaceShortcut(keyboard, key);
+        await waitUntil(
+            () =>
+                shellGlobal.workspace_manager.get_active_workspace_index() === workspace &&
+                workspaceOf(secondaryNext) === workspace &&
+                animationController._switchData === null,
+            `primary shortcut did not reach physical workspace ${String(workspace)}`
+        );
+    };
+    await switchPrimary(Clutter.KEY_Right, 3);
+    await switchPrimary(Clutter.KEY_Right, 0);
+    sendWorkspaceShortcut(keyboard, Clutter.KEY_Right);
+    await Scripting.sleep(500);
+    assert(
+        shellGlobal.workspace_manager.get_active_workspace_index() === 0,
+        'shortcut moved past the logical end of the monitor'
+    );
+    await switchPrimary(Clutter.KEY_Left, 3);
+    assert(
+        workspaceWindowManager._workspaceSwitcherPopup?._activeWorkspaceIndex === 2,
+        'workspace popup did not show the logical workspace'
+    );
+
+    // The desktop swipe has the same logical bounds, including across the physical end.
+    animationController._swipeTracker.emit('begin', 0);
+    const swipeGroup = animationController._switchData?.baseMonitorGroup;
+    assert(
+        swipeGroup?.progress === 2,
+        `desktop swipe did not start at logical workspace 2, got ${String(swipeGroup?.progress)}`
+    );
+    animationController._swipeTracker.emit('update', 3);
+    animationController._swipeTracker.emit('end', 250, 3);
+    await waitUntil(
+        () =>
+            shellGlobal.workspace_manager.get_active_workspace_index() === 0 &&
+            workspaceOf(secondaryNext) === 0 &&
+            animationController._switchData === null,
+        'desktop swipe did not reach the logical end of the monitor'
+    );
+
+    // A swipe that ends where it began finishes synchronously from the primary group.
+    animationController._swipeTracker.emit('begin', 0);
+    animationController._swipeTracker.emit('end', 0, 3);
+    await waitUntil(
+        () => animationController._switchData === null,
+        'instant desktop swipe did not finish'
+    );
+
+    // A swipe that takes over a running one cancels its activation, so the target it committed
+    // must not claim a later switch from another monitor.
+    animationController._swipeTracker.emit('begin', 0);
+    animationController._swipeTracker.emit('end', 250, 2);
+    animationController._swipeTracker.emit('begin', 0);
+    animationController._swipeTracker.emit('end', 0, 3);
+    await waitUntil(
+        () => animationController._switchData === null,
+        'swipe taking over a running one did not finish'
+    );
+    assert(
+        shellGlobal.workspace_manager.get_active_workspace_index() === 0,
+        'swipe taking over a running one did not cancel its activation'
+    );
+
+    const primaryWorkspace = workspaceOf(primaryNext);
+    pointer.notify_absolute_motion(
+        Clutter.get_current_event_time() * 1000,
+        secondaryMonitor.x + secondaryMonitor.width / 2,
+        secondaryMonitor.y + secondaryMonitor.height / 2
+    );
+    await waitUntil(
+        () => shellGlobal.display.get_current_monitor() === 1,
+        'pointer did not select secondary monitor after the swipes'
+    );
+    sendWorkspaceShortcut(keyboard, Clutter.KEY_Left);
+    await waitUntil(
+        () =>
+            shellGlobal.workspace_manager.get_active_workspace_index() === 3 &&
+            animationController._switchData === null,
+        'secondary shortcut did not reach the cancelled swipe target'
+    );
+    assert(
+        workspaceOf(secondaryNext) === 0 && workspaceOf(primaryNext) === (primaryWorkspace + 3) % 4,
+        'cancelled swipe target took the switch away from the secondary monitor'
+    );
 
     await Scripting.waitLeisure();
     await Scripting.destroyTestWindows();

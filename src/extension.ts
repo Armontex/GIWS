@@ -78,6 +78,10 @@ type WorkspaceActivateWithFocus = (
     window: Meta.Window | null,
     timestamp: number
 ) => void;
+type WorkspaceGetNeighbor = (
+    this: Meta.Workspace,
+    direction: Meta.MotionDirection
+) => Meta.Workspace;
 type HandleWorkspaceScroll = (this: NativeWorkspaceWindowManager, event: Clutter.Event) => boolean;
 
 export default class GiwsExtension extends Extension {
@@ -108,8 +112,18 @@ export default class GiwsExtension extends Extension {
             const nativeHandler: WorkspaceKeyHandler = (display, window, event, binding) => {
                 windowManager._showWorkspaceSwitcher(display, window, event, binding);
             };
-            const animation = new TargetMonitorAnimationScope(windowManager._workspaceAnimation);
             const switcher = new WorkspaceSwitcher(environment);
+            const animation = new TargetMonitorAnimationScope(windowManager._workspaceAnimation, {
+                activeMonitor: () => environment.activeMonitor(),
+                primaryMonitor: () => environment.primaryMonitor(),
+                toLogical: (monitor, workspace) =>
+                    switcher.workspaces.toLogical(asMonitorIndex(monitor), workspace),
+                workspaceCount: () => environment.workspaceCount(),
+            });
+            animation.enable();
+            resources.defer(() => {
+                animation.dispose();
+            });
             const gestureAnimation = new WorkspaceGestureAnimationRouter(
                 windowManager._workspaceAnimation,
                 animation,
@@ -140,7 +154,12 @@ export default class GiwsExtension extends Extension {
                         value,
                     }) as unknown as OverviewAdjustment;
                 },
-                monitor => switcher.beginGestureOn(asMonitorIndex(monitor))
+                monitor => switcher.beginGestureOn(asMonitorIndex(monitor)),
+                workspace => {
+                    shellGlobal.workspace_manager
+                        .get_workspace_by_index(workspace)
+                        ?.activate(shellGlobal.get_current_time());
+                }
             );
             const workspaceManager = shellGlobal.workspace_manager;
             const bindOverview = (): void => {
@@ -158,12 +177,6 @@ export default class GiwsExtension extends Extension {
                 }
 
                 controls._workspacesDisplay._updateWorkspacesViews();
-                for (const entry of controls._workspacesDisplay._workspacesViews) {
-                    if ('_thumbnails' in entry) {
-                        entry._thumbnails._createThumbnails();
-                    }
-                }
-
                 bindOverview();
             };
             const workspaceChangedId = workspaceManager.connect('active-workspace-changed', () => {
@@ -184,6 +197,30 @@ export default class GiwsExtension extends Extension {
                 windowManager,
                 shellGlobal.display,
                 runOnMonitor
+            );
+            // Shortcuts, scrolling and Overview keys all step through get_neighbor(), whose
+            // bounds would otherwise be the physical ones instead of the monitor's own.
+            injections.overrideMethod<WorkspaceGetNeighbor>(
+                Meta.Workspace.prototype,
+                'get_neighbor',
+                originalGetNeighbor => {
+                    return function (
+                        this: Meta.Workspace,
+                        direction: Meta.MotionDirection
+                    ): Meta.Workspace {
+                        const delta = motionDelta(direction, workspaceManager.layout_rows === -1);
+                        if (delta === null || !this.active) {
+                            return originalGetNeighbor.call(this, direction);
+                        }
+
+                        const neighbor = switcher.workspaces.neighbor(
+                            environment.activeMonitor(),
+                            this.index(),
+                            delta
+                        );
+                        return workspaceManager.get_workspace_by_index(neighbor) ?? this;
+                    };
+                }
             );
             const overviewShowingId = overview.connect('showing', () => {
                 bindOverview();
@@ -248,6 +285,17 @@ export default class GiwsExtension extends Extension {
             this.#resources = null;
             this.#logger = null;
         }
+    }
+}
+
+function motionDelta(direction: Meta.MotionDirection, vertical: boolean): -1 | 1 | null {
+    switch (direction) {
+        case vertical ? Meta.MotionDirection.UP : Meta.MotionDirection.LEFT:
+            return -1;
+        case vertical ? Meta.MotionDirection.DOWN : Meta.MotionDirection.RIGHT:
+            return 1;
+        default:
+            return null;
     }
 }
 
@@ -337,7 +385,11 @@ function createHandler(
                     nativeHandler(display, window, event, binding);
                 });
             });
-            retargetWorkspacePopup(windowManager._workspaceSwitcherPopup, targetMonitor);
+            retargetWorkspacePopup(
+                windowManager._workspaceSwitcherPopup,
+                targetMonitor,
+                switcher.workspaces.active(targetMonitor, environment.activeWorkspace())
+            );
         } catch (error) {
             logger.error('workspace switch failed', error);
         }

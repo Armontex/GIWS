@@ -26,7 +26,7 @@ export class WorkspaceSwitcher<WindowId> {
     readonly #environment: WorkspaceEnvironment<WindowId>;
     readonly workspaces: MonitorWorkspaces;
     #activeWorkspace: number;
-    readonly #expectedMonitors: ExpectedMonitor[] = [];
+    #expectedMonitors: ExpectedMonitor[] = [];
 
     constructor(environment: WorkspaceEnvironment<WindowId>) {
         this.#environment = environment;
@@ -66,6 +66,12 @@ export class WorkspaceSwitcher<WindowId> {
     }
 
     beginGestureOn(targetMonitor: MonitorIndex): WorkspaceSwitchLease {
+        // A new gesture takes over the running animation of a committed one, whose activation
+        // then never comes. Its target would otherwise claim a later switch to that workspace.
+        this.#expectedMonitors = this.#expectedMonitors.filter(
+            expected => expected.destination === null
+        );
+
         const expected = this.#pushExpectedMonitor(targetMonitor);
         let active = true;
 
